@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import LoginCard from "./LoginCard";
 import { useFamily } from "@/hooks/useFamily";
 
@@ -42,6 +43,18 @@ export default function Dashboard() {
   const [houseNoInput, setHouseNoInput] = useState("");
   const [setupError, setSetupError] = useState("");
 
+  const todayKey = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  const dayStatus = useCallback((date: string) => {
+    const stored = family.days[date];
+    if (stored && stored !== "future" && stored !== "pending") return stored;
+    if (date < todayKey) return "missed";
+    return date === todayKey && stored === "pending" ? "pending" : "future";
+  }, [family.days, todayKey]);
+
   const monthKeys = useMemo(() => {
     const keys = [...new Set(Object.keys(family.days).map((date) => date.slice(0, 7)))];
     return keys.sort((a, b) => a.localeCompare(b));
@@ -81,23 +94,49 @@ export default function Dashboard() {
     Math.round((family.points / family.nextReward.pointsRequired) * 100)
   );
 
-  const monthDates = useMemo(
-    () =>
-      Object.keys(family.days)
-        .filter((date) => date.startsWith(`${selectedMonth}-`))
-        .sort(),
-    [family.days, selectedMonth]
-  );
+  const monthDates = useMemo(() => {
+    const [year, month] = selectedMonth.split("-").map(Number);
+    const total = new Date(year, month, 0).getDate();
+    return Array.from({ length: total }, (_, index) => `${selectedMonth}-${String(index + 1).padStart(2, "0")}`);
+  }, [selectedMonth]);
 
   const monthSummary = useMemo(() => {
-    const statuses = monthDates.map((date) => family.days[date] ?? "future");
+    const statuses = monthDates.map(dayStatus);
     const completed = statuses.filter((status) => status === "completed").length;
-    const pending = statuses.filter((status) => status === "pending").length;
+    const pending = statuses.filter((status) => status === "pending" || status === "future").length;
     const missed = statuses.filter((status) => status === "missed").length;
+    const greenPause = statuses.filter((status) => status === "green_pause").length;
     const co2Saved = Number((completed * 2.7).toFixed(1));
 
-    return { completed, pending, missed, co2Saved };
-  }, [family.days, monthDates]);
+    return { completed, pending, missed, greenPause, co2Saved };
+  }, [dayStatus, monthDates]);
+
+  const previousMonthSummary = useMemo(() => {
+    const index = monthKeys.indexOf(selectedMonth);
+    const key = index > 0 ? monthKeys[index - 1] : monthKeys.at(-2);
+    if (!key) return null;
+    const [year, month] = key.split("-").map(Number);
+    const total = new Date(year, month, 0).getDate();
+    const dates = Array.from({ length: total }, (_, itemIndex) => `${key}-${String(itemIndex + 1).padStart(2, "0")}`);
+    const statuses = dates.map(dayStatus);
+    return {
+      key,
+      completed: statuses.filter((status) => status === "completed").length,
+      missed: statuses.filter((status) => status === "missed").length,
+      greenPause: statuses.filter((status) => status === "green_pause").length
+    };
+  }, [dayStatus, monthKeys, selectedMonth]);
+
+  const recentHistory = useMemo(() => {
+    if (!family.history.length) return [];
+    const end = new Date(`${todayKey}T00:00:00`);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    return family.history.filter((item) => {
+      const date = new Date(`${item.date}T00:00:00`);
+      return date >= start && date <= end;
+    });
+  }, [family.history, todayKey]);
 
   const calendar = useMemo(() => {
     const first = new Date(`${selectedMonth}-01T00:00:00`);
@@ -108,7 +147,8 @@ export default function Dashboard() {
     return cells;
   }, [selectedMonth]);
 
-  const selectedStatus = family.days[selectedDate] ?? "future";
+  const selectedStatus = dayStatus(selectedDate);
+  const selectedTransaction = family.history.find((item) => item.date === selectedDate);
 
   const handleHouseholdSetup = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -228,6 +268,16 @@ export default function Dashboard() {
               <small>days</small>
             </div>
           </article>
+
+          <article className="stat-card pause-card">
+            <span className="stat-icon">⏸</span>
+            <div><span className="label">Available Green Pause</span><strong>{family.greenPauseDays}</strong><small>days</small></div>
+          </article>
+
+          <article className="stat-card pause-card">
+            <span className="stat-icon">🤝</span>
+            <div><span className="label">Referral Green Pause</span><strong>{family.referralGreenPauseDays}</strong><small>days</small></div>
+          </article>
         </section>
 
         <section className="content-grid">
@@ -261,7 +311,7 @@ export default function Dashboard() {
               {calendar.map((day, index) => {
                 if (!day) return <div key={`empty-${index}`} className="calendar-cell empty" />;
                 const key = `${selectedMonth}-${String(day).padStart(2, "0")}`;
-                const status = family.days[key] ?? "future";
+                const status = dayStatus(key);
                 const selected = selectedDate === key;
 
                 return (
@@ -274,6 +324,7 @@ export default function Dashboard() {
                     <span>{day}</span>
                     {status === "completed" && <b>✓</b>}
                     {status === "missed" && <b>×</b>}
+                    {status === "green_pause" && <b>Ⅱ</b>}
                     {status === "pending" && <b>•</b>}
                   </button>
                 );
@@ -283,6 +334,7 @@ export default function Dashboard() {
             <div className="legend">
               <span><i className="dot completed-dot" /> Completed</span>
               <span><i className="dot missed-dot" /> Missed</span>
+              <span><i className="dot pause-dot" /> Green Pause</span>
               <span><i className="dot future-dot" /> Upcoming</span>
             </div>
           </article>
@@ -297,6 +349,7 @@ export default function Dashboard() {
                 <span className={`status-badge ${selectedStatus}`}>
                   {selectedStatus === "completed" ? "Completed" :
                    selectedStatus === "missed" ? "Missed" :
+                   selectedStatus === "green_pause" ? "Green Pause" :
                    selectedStatus === "pending" ? "Pending" : "Upcoming"}
                 </span>
               </div>
@@ -306,7 +359,14 @@ export default function Dashboard() {
                   <div className="big-check">✓</div>
                   <h3>Waste submission verified</h3>
                   <p>Your segregated waste activity was recorded successfully.</p>
-                  <div className="points-earned">+5 <span>points</span></div>
+                  <div className="points-earned">{selectedTransaction && selectedTransaction.points > 0 ? "+" : ""}{selectedTransaction?.points ?? 0} <span>points</span></div>
+                </div>
+              ) : selectedStatus === "green_pause" ? (
+                <div className="activity-detail pause-detail">
+                  <div className="big-check">⏸</div>
+                  <h3>Green Pause used</h3>
+                  <p>Your streak is protected for this day, but no reward points are awarded.</p>
+                  <div className="points-earned">0 <span>points</span></div>
                 </div>
               ) : (
                 <div className="activity-detail muted">
@@ -368,8 +428,8 @@ export default function Dashboard() {
                       <span>Pending</span>
                     </div>
                     <div className="summary-box">
-                      <strong>{monthSummary.co2Saved.toFixed(1)} kg</strong>
-                      <span>CO₂ saved</span>
+                      <strong>{monthSummary.missed}</strong>
+                      <span>Missed</span>
                     </div>
                   </div>
 
@@ -381,6 +441,7 @@ export default function Dashboard() {
                   </p>
                 </div>
               )}
+              <Link className="rules-link" href="/reward-rules">View reward rules →</Link>
             </article>
           </aside>
         </section>
@@ -406,20 +467,50 @@ export default function Dashboard() {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">POINTS</p>
-                <h2>Recent Activity</h2>
+                <h2>Last 7 days</h2>
               </div>
             </div>
             <div className="history-list">
-              {family.history.map((item) => (
-                <div className="history-row" key={`${item.date}-${item.reason}`}>
+              {recentHistory.map((item) => (
+                <div className="history-row" key={item.date}>
                   <div>
                     <strong>{item.reason}</strong>
                     <span>{formatDate(item.date)}</span>
                   </div>
-                  <b>+{item.points}</b>
+                  <b className={item.points < 0 ? "negative" : ""}>{item.points > 0 ? "+" : ""}{item.points}</b>
                 </div>
               ))}
+              {!recentHistory.length && <p className="empty-state">No point activity in this seven-day period.</p>}
             </div>
+          </article>
+        </section>
+
+        <section className="dashboard-details-grid">
+          <article className="panel profile-panel">
+            <div className="panel-heading"><div><p className="eyebrow">FAMILY PROFILE</p><h2>{family.familyName} · {family.familyNumber}</h2></div></div>
+            <dl className="profile-list">
+              <div><dt>Family leader</dt><dd>{family.familyLeaderName}</dd></div>
+              <div><dt>Email</dt><dd>{family.email || "Not provided"}</dd></div>
+              <div><dt>Mobile / WhatsApp</dt><dd>{family.mobileNumber || "Not provided"}</dd></div>
+              <div><dt>Alternate mobile</dt><dd>{family.alternateMobileNumber || "Not provided"}</dd></div>
+              <div><dt>Leader mobile</dt><dd>{family.familyLeaderMobile || "Not provided"}</dd></div>
+              <div><dt>Total members</dt><dd>{family.totalMembers ?? "Not provided"}</dd></div>
+              <div className="wide"><dt>Address</dt><dd>{[family.addressLine1, family.addressLine2, family.locality, family.city, family.district, family.stateProvince, family.country, family.pinCode].filter(Boolean).join(", ")}</dd></div>
+            </dl>
+          </article>
+
+          <article className="panel community-panel">
+            <p className="eyebrow">COMMUNITY</p><h2>Family referral tree</h2>
+            <div className="referral-root"><strong>{family.familyNumber}</strong><span>{family.familyName}</span></div>
+            <div className="family-chip-list">{family.referrals.length ? family.referrals.map((entry) => <div className="family-chip" key={entry.id}><strong>{entry.familyNumber}</strong><span>{entry.familyName}</span></div>) : <p className="empty-state">No referred families yet.</p>}</div>
+            <h3>Other families nearby</h3>
+            <div className="nearby-list">{family.nearbyFamilies.length ? family.nearbyFamilies.map((entry) => <div key={entry.id}><span>🏡</span><p><strong>{entry.familyName} · {entry.familyNumber}</strong><small>{entry.locality}</small></p></div>) : <p className="empty-state">No nearby families are listed yet.</p>}</div>
+          </article>
+
+          <article className="panel previous-panel">
+            <p className="eyebrow">PREVIOUS MONTH HISTORY</p>
+            <h2>{previousMonthSummary ? formatMonthYear(previousMonthSummary.key) : "No previous month"}</h2>
+            {previousMonthSummary && <div className="previous-summary"><div><strong>{previousMonthSummary.completed}</strong><span>Completed</span></div><div><strong>{previousMonthSummary.missed}</strong><span>Missed</span></div><div><strong>{previousMonthSummary.greenPause}</strong><span>Green Pause</span></div></div>}
           </article>
         </section>
 

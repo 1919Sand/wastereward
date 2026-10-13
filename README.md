@@ -12,6 +12,10 @@ A mobile-friendly family dashboard for WasteReward.
 - Current/best streak
 - Next reward progress
 - Recent point activity
+- Complete family/contact/address profiles, referrals, and nearby families
+- Green Pause and referral-earned pause tracking
+- Previous-month summaries and a rolling seven-day activity view
+- Reward rules page
 - Admin-created household claiming after Google sign-in
 - Demo mode, so the UI runs before Supabase is configured
 
@@ -41,7 +45,9 @@ Supabase provides Google authentication and PostgreSQL. The regular dashboard ne
 5. Copy `.env.local.example` to `.env.local`; add your Project URL, anon key, service-role key, and administrator emails.
 6. Restart `npm run dev`.
 
-In `/admin`, create each household with its family name, house number, and unique WasteReward ID. On a member's first sign-in, they enter their house number and WasteReward ID to claim that household. On later sign-ins, their own dashboard loads directly.
+In `/admin`, create each household with its family, contact, address, and optional referral details. On a member's first sign-in, they enter their house number and WasteReward ID to claim that household. On later sign-ins, their own dashboard loads directly.
+
+If this project was already deployed using an earlier schema, run [`supabase/dashboard-update.sql`](supabase/dashboard-update.sql) once. It adds the profile fields, repairs duplicate same-day point records, and enforces one replaceable point entry per family per day.
 
 The `families` table is linked to a member's Google account only after the household is claimed.
 
@@ -77,7 +83,7 @@ Example document:
 
 ### Admin operations
 
-The protected admin panel is at [http://localhost:3000/admin](http://localhost:3000/admin). It creates unclaimed households and manually adds or deducts points. It is intentionally separate from the member dashboard.
+The protected admin panel is at [http://localhost:3000/admin](http://localhost:3000/admin). It creates unclaimed households and saves Completed, Missed, or Green Pause daily entries. Saving the same family and date replaces the earlier entry, preventing duplicate point totals. It also provides the family's current total and day-by-day history.
 
 To activate it, add these server-only values to `.env.local`:
 

@@ -1,9 +1,31 @@
-export type DayStatus = "completed" | "missed" | "pending" | "future";
+export type DayStatus = "completed" | "missed" | "green_pause" | "pending" | "future";
+
+export type FamilySummary = {
+  id: string;
+  familyNumber: string;
+  familyName: string;
+  locality: string;
+};
 
 export type FamilyData = {
   id: string;
   familyName: string;
+  familyNumber: string;
+  email: string;
+  mobileNumber: string;
+  alternateMobileNumber: string;
+  familyLeaderName: string;
+  familyLeaderMobile: string;
+  totalMembers: number | null;
   houseNo: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  district: string;
+  stateProvince: string;
+  locality: string;
+  country: string;
+  pinCode: string;
   society: string;
   points: number;
   currentStreak: number;
@@ -15,6 +37,10 @@ export type FamilyData = {
   };
   history: { date: string; reason: string; points: number }[];
   days: Record<string, DayStatus>;
+  greenPauseDays: number;
+  referralGreenPauseDays: number;
+  referrals: FamilySummary[];
+  nearbyFamilies: FamilySummary[];
 };
 
 function buildMonthDays(year: number, month: number, pattern: Array<[number, DayStatus]>) {
@@ -35,6 +61,11 @@ function buildMonthDays(year: number, month: number, pattern: Array<[number, Day
 }
 
 const familyOneDays: Record<string, DayStatus> = {
+  ...buildMonthDays(2026, 10, [
+    [1, "completed"],[2,"completed"],[3,"completed"],[4,"completed"],[5,"completed"],
+    [6, "completed"],[7,"completed"],[8,"completed"],[9,"completed"],[10,"completed"],
+    [11, "green_pause"],[12,"missed"],[13,"completed"]
+  ]),
   ...buildMonthDays(2026, 9, [
     [1, "completed"],[2,"completed"],[3,"completed"],[4,"completed"],[5,"completed"],
     [6, "completed"],[7,"completed"],[8,"completed"],[9,"completed"],[10,"completed"],
@@ -52,6 +83,11 @@ const familyOneDays: Record<string, DayStatus> = {
 };
 
 const familyTwoDays: Record<string, DayStatus> = {
+  ...buildMonthDays(2026, 10, [
+    [1, "completed"],[2,"completed"],[3,"missed"],[4,"completed"],[5,"completed"],
+    [6, "green_pause"],[7,"completed"],[8,"completed"],[9,"completed"],[10,"completed"],
+    [11, "missed"],[12,"completed"],[13,"completed"]
+  ]),
   ...buildMonthDays(2026, 9, [
     [1, "completed"],[2,"completed"],[3,"pending"],[4,"future"],[5,"future"],
     [6, "future"],[7,"future"],[8,"future"],[9,"future"],[10,"future"],
@@ -73,7 +109,22 @@ const familyTwoDays: Record<string, DayStatus> = {
 export const demoFamily: FamilyData = {
   id: "WR001",
   familyName: "Anju Bala",
+  familyNumber: "F1",
+  email: "anju@example.com",
+  mobileNumber: "+91 98765 43210",
+  alternateMobileNumber: "",
+  familyLeaderName: "Anju Bala",
+  familyLeaderMobile: "+91 98765 43210",
+  totalMembers: 4,
   houseNo: "1171D-F1",
+  addressLine1: "House 1171D",
+  addressLine2: "Green Avenue",
+  city: "New Delhi",
+  district: "South Delhi",
+  stateProvince: "Delhi",
+  locality: "Green Avenue",
+  country: "India",
+  pinCode: "110001",
   society: "WasteReward Community",
   points: 120,
   currentStreak: 24,
@@ -81,6 +132,12 @@ export const demoFamily: FamilyData = {
   rank: 1,
   nextReward: { name: "Mystery Reward", pointsRequired: 200 },
   history: [
+    { date: "2026-10-13", reason: "Daily waste collection", points: 5 },
+    { date: "2026-10-11", reason: "Green Pause used", points: 0 },
+    { date: "2026-10-10", reason: "Daily waste collection", points: 5 },
+    { date: "2026-10-09", reason: "Daily waste collection", points: 5 },
+    { date: "2026-10-08", reason: "Daily waste collection", points: 5 },
+    { date: "2026-10-07", reason: "Daily waste collection", points: 5 },
     { date: "2026-09-15", reason: "Daily waste submission", points: 5 },
     { date: "2026-09-14", reason: "Daily waste submission", points: 5 },
     { date: "2026-09-13", reason: "Daily waste submission", points: 5 },
@@ -90,13 +147,32 @@ export const demoFamily: FamilyData = {
     { date: "2026-08-20", reason: "August cleanup drive", points: 5 },
     { date: "2026-08-18", reason: "August cleanup drive", points: 5 }
   ],
-  days: familyOneDays
+  days: familyOneDays,
+  greenPauseDays: 4,
+  referralGreenPauseDays: 1,
+  referrals: [{ id: "WR002", familyNumber: "F2", familyName: "Kiran", locality: "Green Avenue" }],
+  nearbyFamilies: [{ id: "WR002", familyNumber: "F2", familyName: "Kiran", locality: "Green Avenue" }]
 };
 
 export const demoFamilyTwo: FamilyData = {
   id: "WR002",
   familyName: "Kiran",
+  familyNumber: "F2",
+  email: "kiran@example.com",
+  mobileNumber: "+91 98765 43211",
+  alternateMobileNumber: "",
+  familyLeaderName: "Kiran",
+  familyLeaderMobile: "+91 98765 43211",
+  totalMembers: 3,
   houseNo: "1174D",
+  addressLine1: "House 1174D",
+  addressLine2: "Green Avenue",
+  city: "New Delhi",
+  district: "South Delhi",
+  stateProvince: "Delhi",
+  locality: "Green Avenue",
+  country: "India",
+  pinCode: "110001",
   society: "WasteReward Community",
   points: 90,
   currentStreak: 14,
@@ -104,12 +180,20 @@ export const demoFamilyTwo: FamilyData = {
   rank: 2,
   nextReward: { name: "Mystery Reward", pointsRequired: 200 },
   history: [
+    { date: "2026-10-13", reason: "Daily waste collection", points: 5 },
+    { date: "2026-10-12", reason: "Daily waste collection", points: 5 },
+    { date: "2026-10-11", reason: "Collection missed", points: 0 },
+    { date: "2026-10-09", reason: "Daily waste collection", points: 5 },
     { date: "2026-09-03", reason: "Daily waste submission", points: 5 },
     { date: "2026-08-28", reason: "August cleanup drive", points: 5 },
     { date: "2026-08-21", reason: "Daily waste submission", points: 5 },
     { date: "2026-08-17", reason: "Daily waste submission", points: 5 }
   ],
-  days: familyTwoDays
+  days: familyTwoDays,
+  greenPauseDays: 4,
+  referralGreenPauseDays: 0,
+  referrals: [],
+  nearbyFamilies: [{ id: "WR001", familyNumber: "F1", familyName: "Anju Bala", locality: "Green Avenue" }]
 };
 
 export const demoFamilies: FamilyData[] = [demoFamily, demoFamilyTwo];
@@ -129,7 +213,22 @@ export function makeEmptyFamily(familyId: string, familyName: string, houseNo: s
   return {
     id: familyId,
     familyName,
+    familyNumber: "F1",
+    email: "",
+    mobileNumber: "",
+    alternateMobileNumber: "",
+    familyLeaderName: familyName,
+    familyLeaderMobile: "",
+    totalMembers: null,
     houseNo,
+    addressLine1: houseNo,
+    addressLine2: "",
+    city: "",
+    district: "",
+    stateProvince: "",
+    locality: "",
+    country: "India",
+    pinCode: "",
     society: "WasteReward Community",
     points: 0,
     currentStreak: 0,
@@ -137,6 +236,10 @@ export function makeEmptyFamily(familyId: string, familyName: string, houseNo: s
     rank: 1,
     nextReward: { name: "Mystery Reward", pointsRequired: 200 },
     history: [],
-    days
+    days,
+    greenPauseDays: 4,
+    referralGreenPauseDays: 0,
+    referrals: [],
+    nearbyFamilies: []
   };
 }

@@ -7,16 +7,45 @@ export const runtime = "nodejs";
 export async function POST(request: NextRequest) {
   try {
     await requireAdmin(request);
-    const { familyId, familyName, houseNo } = await request.json();
+    const body = await request.json();
+    const required = ["familyId", "familyNumber", "familyName", "email", "mobileNumber", "familyLeaderName", "familyLeaderMobile", "houseNo", "addressLine1", "city", "district", "stateProvince", "locality", "country", "pinCode"];
 
-    if (![familyId, familyName, houseNo].every((value) => typeof value === "string" && value.trim())) {
-      return NextResponse.json({ error: "WasteReward ID, family name, and house number are required." }, { status: 400 });
+    if (!required.every((key) => typeof body[key] === "string" && body[key].trim())) {
+      return NextResponse.json({ error: "Please complete all required family, contact, and address fields." }, { status: 400 });
+    }
+
+    const totalMembers = body.totalMembers === "" || body.totalMembers == null ? null : Number(body.totalMembers);
+    if (totalMembers !== null && (!Number.isInteger(totalMembers) || totalMembers < 1)) {
+      return NextResponse.json({ error: "Total family members must be a positive whole number." }, { status: 400 });
+    }
+
+    let referredByFamilyId: string | null = null;
+    if (typeof body.referredBy === "string" && body.referredBy.trim()) {
+      const { data: referrer } = await getSupabaseAdmin().from("families").select("id").eq("waste_reward_id", body.referredBy.trim().toUpperCase()).maybeSingle();
+      if (!referrer) return NextResponse.json({ error: "The referring WasteReward ID was not found." }, { status: 400 });
+      referredByFamilyId = referrer.id;
     }
 
     const { error } = await getSupabaseAdmin().from("families").insert({
-      waste_reward_id: familyId.trim().toUpperCase(),
-      family_name: familyName.trim(),
-      house_no: houseNo.trim()
+      waste_reward_id: body.familyId.trim().toUpperCase(),
+      family_number: body.familyNumber.trim().toUpperCase(),
+      family_name: body.familyName.trim(),
+      email: body.email.trim().toLowerCase(),
+      mobile_number: body.mobileNumber.trim(),
+      alternate_mobile_number: body.alternateMobileNumber?.trim() || null,
+      family_leader_name: body.familyLeaderName.trim(),
+      family_leader_mobile: body.familyLeaderMobile.trim(),
+      total_members: totalMembers,
+      house_no: body.houseNo.trim(),
+      address_line_1: body.addressLine1.trim(),
+      address_line_2: body.addressLine2?.trim() || null,
+      city: body.city.trim(),
+      district: body.district.trim(),
+      state_province: body.stateProvince.trim(),
+      locality: body.locality.trim(),
+      country: body.country.trim(),
+      pin_code: body.pinCode.trim(),
+      referred_by_family_id: referredByFamilyId
     });
     if (error) throw new Error(error.code === "23505" ? "That WasteReward ID already exists." : error.message);
     return NextResponse.json({ ok: true });
