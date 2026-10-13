@@ -16,6 +16,9 @@ A mobile-friendly family dashboard for WasteReward.
 - Green Pause and referral-earned pause tracking
 - Previous-month summaries and a rolling seven-day activity view
 - Reward rules page
+- Month-specific points and rankings that follow the selected calendar month
+- PIN-code, city, state, and India monthly leaderboards
+- WhatsApp interest and referral-sharing journeys
 - Admin-created household claiming after Google sign-in
 - Demo mode, so the UI runs before Supabase is configured
 
@@ -47,7 +50,7 @@ Supabase provides Google authentication and PostgreSQL. The regular dashboard ne
 
 In `/admin`, create each household with its family, contact, address, and optional referral details. On a member's first sign-in, they enter their house number and WasteReward ID to claim that household. On later sign-ins, their own dashboard loads directly.
 
-If this project was already deployed using an earlier schema, run [`supabase/dashboard-update.sql`](supabase/dashboard-update.sql) once. It adds the profile fields, repairs duplicate same-day point records, and enforces one replaceable point entry per family per day.
+If this project was already deployed using an earlier schema, run [`supabase/dashboard-update.sql`](supabase/dashboard-update.sql) once. It adds the profile fields, repairs duplicate same-day point records, and enforces one replaceable point entry per family per day. Then run [`supabase/leaderboard-update.sql`](supabase/leaderboard-update.sql) to enable scoped monthly leaderboards.
 
 The `families` table is linked to a member's Google account only after the household is claimed.
 
@@ -89,5 +92,6 @@ To activate it, add these server-only values to `.env.local`:
 
 - `ADMIN_EMAILS`: comma-separated Google email addresses permitted to use `/admin`.
 - `SUPABASE_SERVICE_ROLE_KEY`: find this server-only key in Supabase Project Settings → API.
+- `NEXT_PUBLIC_WHATSAPP_NUMBER`: the WasteReward WhatsApp onboarding number in international format with digits only. It defaults to `919509925939`; override it here if the number changes. “Get Started” opens the interest form, where this WhatsApp shortcut appears above the form.
 
 Never use a `NEXT_PUBLIC_` prefix for the service-role key and never commit `.env.local`. The admin gives each household a short ID such as `WR101`; the member claims it once using that ID and their house number. Every manual point change is written to `point_transactions`.

@@ -3,9 +3,31 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import LoginCard from "./LoginCard";
+import ReferralShare from "./ReferralShare";
 import { useFamily } from "@/hooks/useFamily";
+import { demoFamilies } from "@/lib/demo-data";
+import { supabase } from "@/lib/supabase";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+type LeaderboardScope = "nearby" | "city" | "state" | "india";
+type LeaderboardEntry = {
+  position: number;
+  waste_reward_id: string;
+  family_number: string;
+  family_name: string;
+  city: string;
+  state_province: string;
+  locality: string;
+  monthly_points: number;
+  is_current: boolean;
+};
+
+const leaderboardScopes: Array<{ value: LeaderboardScope; label: string }> = [
+  { value: "nearby", label: "Nearby" },
+  { value: "city", label: "City" },
+  { value: "state", label: "State" },
+  { value: "india", label: "India" }
+];
 
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -27,7 +49,6 @@ export default function Dashboard() {
   const {
     user,
     family,
-    selectedFamilyId,
     loading,
     login,
     logout,
@@ -42,6 +63,10 @@ export default function Dashboard() {
   const [familyIdInput, setFamilyIdInput] = useState("");
   const [houseNoInput, setHouseNoInput] = useState("");
   const [setupError, setSetupError] = useState("");
+  const [leaderboardScope, setLeaderboardScope] = useState<LeaderboardScope>("nearby");
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState("");
 
   const todayKey = useMemo(() => {
     const now = new Date();
@@ -111,6 +136,13 @@ export default function Dashboard() {
     return { completed, pending, missed, greenPause, co2Saved };
   }, [dayStatus, monthDates]);
 
+  const selectedMonthPoints = useMemo(
+    () => family.history
+      .filter((item) => item.date.startsWith(`${selectedMonth}-`))
+      .reduce((total, item) => total + item.points, 0),
+    [family.history, selectedMonth]
+  );
+
   const previousMonthSummary = useMemo(() => {
     const index = monthKeys.indexOf(selectedMonth);
     const key = index > 0 ? monthKeys[index - 1] : monthKeys.at(-2);
@@ -149,6 +181,57 @@ export default function Dashboard() {
 
   const selectedStatus = dayStatus(selectedDate);
   const selectedTransaction = family.history.find((item) => item.date === selectedDate);
+  const currentLeaderboardEntry = leaderboard.find((entry) => entry.is_current);
+  useEffect(() => {
+    if (loading) return;
+    let cancelled = false;
+    const loadLeaderboard = async () => {
+      setLeaderboardLoading(true);
+      setLeaderboard([]);
+      setLeaderboardError("");
+      try {
+        if (demoMode) {
+          const matching = demoFamilies.filter((entry) => {
+            if (leaderboardScope === "india") return true;
+            if (leaderboardScope === "state") return entry.stateProvince.toLowerCase() === family.stateProvince.toLowerCase();
+            if (leaderboardScope === "city") return entry.city.toLowerCase() === family.city.toLowerCase();
+            return entry.pinCode === family.pinCode;
+          });
+          const entries = matching
+            .map((entry) => ({
+              entry,
+              points: entry.history.filter((item) => item.date.startsWith(`${selectedMonth}-`)).reduce((sum, item) => sum + item.points, 0)
+            }))
+            .sort((a, b) => b.points - a.points || a.entry.id.localeCompare(b.entry.id))
+            .map(({ entry, points }, index) => ({
+              position: index + 1, waste_reward_id: entry.id, family_number: entry.familyNumber,
+              family_name: entry.familyName, city: entry.city, state_province: entry.stateProvince,
+              locality: entry.locality, monthly_points: points, is_current: entry.id === family.id
+            }));
+          if (!cancelled) setLeaderboard(entries.slice(0, 20));
+          return;
+        }
+
+        const { data: { session } } = await supabase!.auth.getSession();
+        if (!session) throw new Error("Please sign in again to view the leaderboard.");
+        const response = await fetch(`/api/leaderboard?scope=${leaderboardScope}&month=${selectedMonth}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` }
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "Unable to load the leaderboard.");
+        if (!cancelled) setLeaderboard(result.entries);
+      } catch (error) {
+        if (!cancelled) {
+          setLeaderboard([]);
+          setLeaderboardError(error instanceof Error ? error.message : "Unable to load the leaderboard.");
+        }
+      } finally {
+        if (!cancelled) setLeaderboardLoading(false);
+      }
+    };
+    loadLeaderboard();
+    return () => { cancelled = true; };
+  }, [demoMode, family.city, family.id, family.pinCode, family.stateProvince, leaderboardScope, loading, selectedMonth]);
 
   const handleHouseholdSetup = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -158,6 +241,12 @@ export default function Dashboard() {
     } catch {
       setSetupError("We could not save your household. Please try again.");
     }
+  };
+
+  const selectMonth = (monthKey: string) => {
+    const firstRecordedDate = Object.keys(family.days).filter((date) => date.startsWith(`${monthKey}-`)).sort()[0];
+    setSelectedMonth(monthKey);
+    setSelectedDate(firstRecordedDate ?? `${monthKey}-01`);
   };
 
   if (loading) {
@@ -189,6 +278,7 @@ export default function Dashboard() {
             <button type="submit" className="primary-action">Open my dashboard</button>
           </form>
           <button type="button" className="text-button" onClick={logout}>Use another Google account</button>
+          <Link className="login-home-link" href="/">← Back to WasteReward website</Link>
         </section>
       </main>
     );
@@ -197,15 +287,16 @@ export default function Dashboard() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand">
+        <Link href="/" className="brand dashboard-brand" aria-label="Go to WasteReward website home">
           <div className="brand-icon">♻</div>
           <div>
             <strong>WasteReward</strong>
             <span>Green habits. Great rewards.</span>
           </div>
-        </div>
+        </Link>
 
         <div className="profile-area">
+          <Link className="website-link" href="/">← Back to website</Link>
           <div className="avatar">
             {(user?.user_metadata.full_name as string | undefined)?.[0] ?? "A"}
           </div>
@@ -236,8 +327,8 @@ export default function Dashboard() {
           <article className="stat-card primary">
             <span className="stat-icon">⭐</span>
             <div>
-              <span className="label">Available Points</span>
-              <strong>{family.points}</strong>
+              <span className="label">{formatMonthYear(selectedMonth)} Points</span>
+              <strong>{selectedMonthPoints}</strong>
               <small>points</small>
             </div>
           </article>
@@ -255,8 +346,8 @@ export default function Dashboard() {
             <span className="stat-icon">🏆</span>
             <div>
               <span className="label">Your Rank</span>
-              <strong>#{family.rank}</strong>
-              <small>this month</small>
+              <strong>{currentLeaderboardEntry ? `#${currentLeaderboardEntry.position}` : "—"}</strong>
+              <small>{leaderboardScopes.find((scope) => scope.value === leaderboardScope)?.label.toLowerCase()} this month</small>
             </div>
           </article>
 
@@ -280,6 +371,8 @@ export default function Dashboard() {
           </article>
         </section>
 
+        <ReferralShare familyId={family.id} familyName={family.familyName} referralCount={family.referrals.length} />
+
         <section className="content-grid">
           <article className="panel calendar-panel">
             <div className="panel-heading">
@@ -295,7 +388,7 @@ export default function Dashboard() {
                 <button
                   key={monthKey}
                   className={`month-option ${selectedMonth === monthKey ? "active" : ""}`}
-                  onClick={() => setSelectedMonth(monthKey)}
+                  onClick={() => selectMonth(monthKey)}
                   type="button"
                 >
                   {formatMonthYear(monthKey)}
@@ -446,6 +539,23 @@ export default function Dashboard() {
           </aside>
         </section>
 
+        <section className="panel leaderboard-panel">
+          <div className="leaderboard-heading">
+            <div><p className="eyebrow">COMMUNITY LEADERBOARD</p><h2>{formatMonthYear(selectedMonth)} rankings</h2><p>Top families by points for the selected month. Nearby uses your PIN code by default.</p></div>
+            <div className="scope-tabs" role="tablist" aria-label="Leaderboard area">{leaderboardScopes.map((scope) => <button key={scope.value} type="button" role="tab" aria-selected={leaderboardScope === scope.value} className={leaderboardScope === scope.value ? "active" : ""} onClick={() => setLeaderboardScope(scope.value)}>{scope.label}</button>)}</div>
+          </div>
+          {leaderboardLoading ? <p className="empty-state">Loading rankings…</p> : leaderboardError ? <p className="form-error">{leaderboardError}</p> : leaderboard.length ? <div className="leaderboard-table" role="table" aria-label={`${formatMonthYear(selectedMonth)} leaderboard`}>
+            <div className="leaderboard-row leaderboard-labels" role="row"><span>Rank</span><span>Family</span><span>Location</span><span>Points</span></div>
+            {leaderboard.slice(0, 20).map((entry) => <div className={`leaderboard-row ${entry.is_current ? "current" : ""}`} role="row" key={entry.waste_reward_id}>
+              <strong className="rank-number">{entry.position <= 3 ? ["🥇", "🥈", "🥉"][entry.position - 1] : `#${entry.position}`}</strong>
+              <div><strong>{entry.family_name}</strong><small>{entry.family_number} · {entry.waste_reward_id}{entry.is_current ? " · You" : ""}</small></div>
+              <span>{leaderboardScope === "nearby" ? entry.locality : leaderboardScope === "city" ? entry.city : leaderboardScope === "state" ? entry.state_province : `${entry.city}, ${entry.state_province}`}</span>
+              <b>{entry.monthly_points}</b>
+            </div>)}
+          </div> : <p className="empty-state">No families have points in this area for {formatMonthYear(selectedMonth)} yet.</p>}
+          {currentLeaderboardEntry && currentLeaderboardEntry.position > 20 && <p className="your-rank-note">Your current position: <strong>#{currentLeaderboardEntry.position}</strong> with {currentLeaderboardEntry.monthly_points} points.</p>}
+        </section>
+
         <section className="bottom-grid">
           <article className="panel streak-panel">
             <div className="streak-copy">
@@ -500,7 +610,8 @@ export default function Dashboard() {
           </article>
 
           <article className="panel community-panel">
-            <p className="eyebrow">COMMUNITY</p><h2>Family referral tree</h2>
+            <div className="panel-heading"><div><p className="eyebrow">COMMUNITY</p><h2>Family referral tree</h2></div></div>
+            <p className="referral-help">Approved households that joined with referral ID <strong>{family.id}</strong> appear below.</p>
             <div className="referral-root"><strong>{family.familyNumber}</strong><span>{family.familyName}</span></div>
             <div className="family-chip-list">{family.referrals.length ? family.referrals.map((entry) => <div className="family-chip" key={entry.id}><strong>{entry.familyNumber}</strong><span>{entry.familyName}</span></div>) : <p className="empty-state">No referred families yet.</p>}</div>
             <h3>Other families nearby</h3>
