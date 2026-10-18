@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { dateKeyInTimeZone } from "@/lib/date";
 
 type Notice = { type: "error" | "success"; message: string } | null;
 type PointHistory = { date: string; reason: string; points: number };
@@ -37,8 +38,10 @@ export default function AdminPanel() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [family, setFamily] = useState(emptyFamily);
-  const [pointUpdate, setPointUpdate] = useState({ familyId: "", reason: "Daily waste collection", points: "5", status: "completed", date: new Date().toISOString().slice(0, 10) });
+  const todayKey = dateKeyInTimeZone();
+  const [pointUpdate, setPointUpdate] = useState({ familyId: "", reason: "Daily waste collection", points: "5", status: "completed", date: todayKey });
   const [history, setHistory] = useState<HistoryResult>(null);
+  const [claimCode, setClaimCode] = useState("");
 
   useEffect(() => {
     if (!supabase) { setLoading(false); return; }
@@ -56,11 +59,25 @@ export default function AdminPanel() {
   async function submitFamily(event: React.FormEvent) {
     event.preventDefault(); setSaving(true); setNotice(null);
     try {
-      await adminFetch("/api/admin/families", { method: "POST", body: JSON.stringify(family) });
-      setNotice({ type: "success", message: "Household created with its contact, address, and referral details." });
+      const result = await adminFetch("/api/admin/families", { method: "POST", body: JSON.stringify(family) });
+      setClaimCode(result.claimCode);
+      setNotice({ type: "success", message: "Household created. Copy the one-time claim code below; it expires in 30 days." });
       setFamily(emptyFamily);
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to create household." });
+    } finally { setSaving(false); }
+  }
+
+  async function generateClaimCode() {
+    const familyId = history?.id ?? pointUpdate.familyId;
+    if (!familyId.trim()) { setNotice({ type: "error", message: "Look up an unclaimed household first." }); return; }
+    setSaving(true); setNotice(null);
+    try {
+      const result = await adminFetch("/api/admin/claim-code", { method: "POST", body: JSON.stringify({ familyId }) });
+      setClaimCode(result.claimCode);
+      setNotice({ type: "success", message: "A new one-time claim code was generated and will expire in 30 days." });
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to generate a claim code." });
     } finally { setSaving(false); }
   }
 
@@ -79,8 +96,8 @@ export default function AdminPanel() {
     event.preventDefault(); setSaving(true); setNotice(null);
     try {
       await adminFetch("/api/admin/points", { method: "POST", body: JSON.stringify(pointUpdate) });
-      setNotice({ type: "success", message: "Daily entry saved. Any earlier entry for this family and date was replaced." });
       await loadHistory(pointUpdate.familyId);
+      setNotice({ type: "success", message: "Daily entry saved. Any earlier entry for this family and date was replaced." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to update points." });
     } finally { setSaving(false); }
@@ -99,6 +116,7 @@ export default function AdminPanel() {
     <main className="admin-page">
       <header className="admin-header"><div><p className="eyebrow">WASTEREWARD</p><h1>Admin panel</h1></div><div><span>{user.email}</span><button className="logout-btn" onClick={() => supabase!.auth.signOut()}>Sign out</button></div></header>
       {notice && <p className={`admin-notice ${notice.type}`}>{notice.message}</p>}
+      {claimCode && <section className="admin-claim-code" role="status"><span>ONE-TIME HOUSEHOLD CLAIM CODE</span><strong>{claimCode}</strong><button type="button" onClick={() => navigator.clipboard.writeText(claimCode)}>Copy code</button><small>Share securely with the registered family. It can be used once and expires in 30 days.</small></section>}
       <section className="admin-stack">
         <form className="panel admin-form" onSubmit={submitFamily}>
           <p className="eyebrow">CREATE FAMILY</p><h2>Create a member household</h2>
@@ -134,8 +152,8 @@ export default function AdminPanel() {
             <label className="field-label">WasteReward ID<div className="input-action"><input required value={pointUpdate.familyId} onChange={(e) => setPointUpdate({ ...pointUpdate, familyId: e.target.value })} /><button type="button" onClick={() => loadHistory()} disabled={saving}>Check history</button></div></label>
             <label className="field-label">Day status<select value={pointUpdate.status} onChange={(e) => changeStatus(e.target.value)}><option value="completed">Completed</option><option value="missed">Missed (0 points)</option><option value="green_pause">Green Pause (0 points)</option></select></label>
             <label className="field-label">Reason<input required value={pointUpdate.reason} onChange={(e) => setPointUpdate({ ...pointUpdate, reason: e.target.value })} /></label>
-            <label className="field-label">Points<input required type="number" step="1" disabled={pointUpdate.status !== "completed"} value={pointUpdate.points} onChange={(e) => setPointUpdate({ ...pointUpdate, points: e.target.value })} /></label>
-            <label className="field-label">Date<input required type="date" value={pointUpdate.date} onChange={(e) => setPointUpdate({ ...pointUpdate, date: e.target.value })} /></label>
+            <label className="field-label">Points<input required type="number" min={pointUpdate.status === "completed" ? 1 : 0} step="1" disabled={pointUpdate.status !== "completed"} value={pointUpdate.points} onChange={(e) => setPointUpdate({ ...pointUpdate, points: e.target.value })} /></label>
+            <label className="field-label">Date<input required type="date" max={todayKey} value={pointUpdate.date} onChange={(e) => setPointUpdate({ ...pointUpdate, date: e.target.value })} /></label>
             <p className="form-help">Saving the same family and date replaces the previous entry and adjusts the total by the difference.</p>
             <button className="primary-action" type="submit" disabled={saving}>Save daily entry</button>
           </form>
@@ -143,7 +161,7 @@ export default function AdminPanel() {
           <article className="panel history-panel admin-history">
             <p className="eyebrow">DAY-BY-DAY HISTORY</p>
             <h2>{history ? history.name : "Look up a family"}</h2>
-            {history ? <><div className="admin-total"><span>Total points</span><strong>{history.points}</strong></div><div className="history-list">{history.history.length ? history.history.map((item) => <div className="history-row" key={item.date}><div><strong>{item.reason}</strong><span>{formatDate(item.date)}</span></div><b className={item.points < 0 ? "negative" : ""}>{item.points > 0 ? "+" : ""}{item.points}</b></div>) : <p className="empty-state">No point entries yet.</p>}</div></> : <p className="empty-state">Enter a WasteReward ID and select “Check history” to review its current total and daily entries.</p>}
+            {history ? <><div className="admin-total"><span>Total points</span><strong>{history.points}</strong></div><button className="secondary-action" type="button" onClick={generateClaimCode} disabled={saving}>Generate new claim code</button><div className="history-list">{history.history.length ? history.history.map((item) => <div className="history-row" key={item.date}><div><strong>{item.reason}</strong><span>{formatDate(item.date)}</span></div><b className={item.points < 0 ? "negative" : ""}>{item.points > 0 ? "+" : ""}{item.points}</b></div>) : <p className="empty-state">No point entries yet.</p>}</div></> : <p className="empty-state">Enter a WasteReward ID and select “Check history” to review its current total and daily entries.</p>}
           </article>
         </section>
       </section>

@@ -7,6 +7,7 @@ import ReferralShare from "./ReferralShare";
 import { useFamily } from "@/hooks/useFamily";
 import { demoFamilies } from "@/lib/demo-data";
 import { supabase } from "@/lib/supabase";
+import { dateKeyInTimeZone } from "@/lib/date";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type LeaderboardScope = "nearby" | "city" | "state" | "india";
@@ -50,40 +51,45 @@ export default function Dashboard() {
     user,
     family,
     loading,
+    profileError,
     login,
     logout,
+    refreshFamily,
     demoMode,
     claimHousehold,
     needsHousehold
   } = useFamily();
 
-  const [selectedMonth, setSelectedMonth] = useState("2026-09");
-  const [selectedDate, setSelectedDate] = useState("2026-09-15");
+  const initialDate = useMemo(() => dateKeyInTimeZone(), []);
+  const [selectedMonth, setSelectedMonth] = useState(() => initialDate.slice(0, 7));
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [rewardOpen, setRewardOpen] = useState(true);
   const [familyIdInput, setFamilyIdInput] = useState("");
-  const [houseNoInput, setHouseNoInput] = useState("");
+  const [claimCodeInput, setClaimCodeInput] = useState("");
   const [setupError, setSetupError] = useState("");
   const [leaderboardScope, setLeaderboardScope] = useState<LeaderboardScope>("nearby");
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState("");
+  const [nearbyMode, setNearbyMode] = useState<"pin" | "radius">("pin");
+  const [locationUpdating, setLocationUpdating] = useState(false);
+  const [locationMessage, setLocationMessage] = useState("");
+  const [locationVersion, setLocationVersion] = useState(0);
 
-  const todayKey = useMemo(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  }, []);
+  const todayKey = initialDate;
 
   const dayStatus = useCallback((date: string) => {
     const stored = family.days[date];
     if (stored && stored !== "future" && stored !== "pending") return stored;
+    if (date < dateKeyInTimeZone(new Date(family.createdAt))) return "inactive";
     if (date < todayKey) return "missed";
     return date === todayKey && stored === "pending" ? "pending" : "future";
-  }, [family.days, todayKey]);
+  }, [family.createdAt, family.days, todayKey]);
 
   const monthKeys = useMemo(() => {
-    const keys = [...new Set(Object.keys(family.days).map((date) => date.slice(0, 7)))];
+    const keys = [...new Set([todayKey.slice(0, 7), ...Object.keys(family.days).map((date) => date.slice(0, 7))])];
     return keys.sort((a, b) => a.localeCompare(b));
-  }, [family.days]);
+  }, [family.days, todayKey]);
 
   useEffect(() => {
     if (monthKeys.length === 0) return;
@@ -103,17 +109,6 @@ export default function Dashboard() {
     }
   }, [family.days, selectedDate, selectedMonth]);
 
-  useEffect(() => {
-    if (!family) return;
-    setSelectedMonth((current) => {
-      if (!current || !Object.keys(family.days).some((date) => date.startsWith(`${current}-`))) {
-        const keys = [...new Set(Object.keys(family.days).map((date) => date.slice(0, 7)))];
-        return keys[keys.length - 1] ?? current;
-      }
-      return current;
-    });
-  }, [family]);
-
   const progress = Math.min(
     100,
     Math.round((family.points / family.nextReward.pointsRequired) * 100)
@@ -131,9 +126,7 @@ export default function Dashboard() {
     const pending = statuses.filter((status) => status === "pending" || status === "future").length;
     const missed = statuses.filter((status) => status === "missed").length;
     const greenPause = statuses.filter((status) => status === "green_pause").length;
-    const co2Saved = Number((completed * 2.7).toFixed(1));
-
-    return { completed, pending, missed, greenPause, co2Saved };
+    return { completed, pending, missed, greenPause };
   }, [dayStatus, monthDates]);
 
   const selectedMonthPoints = useMemo(
@@ -182,6 +175,24 @@ export default function Dashboard() {
   const selectedStatus = dayStatus(selectedDate);
   const selectedTransaction = family.history.find((item) => item.date === selectedDate);
   const currentLeaderboardEntry = leaderboard.find((entry) => entry.is_current);
+
+  useEffect(() => {
+    if (demoMode || loading || needsHousehold) return;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshFamily().catch(() => undefined);
+    };
+    const interval = window.setInterval(refreshWhenVisible, 30_000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [demoMode, loading, needsHousehold, refreshFamily]);
+
   useEffect(() => {
     if (loading) return;
     let cancelled = false;
@@ -219,7 +230,10 @@ export default function Dashboard() {
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Unable to load the leaderboard.");
-        if (!cancelled) setLeaderboard(result.entries);
+        if (!cancelled) {
+          setLeaderboard(result.entries);
+          if (result.nearbyMode === "pin" || result.nearbyMode === "radius") setNearbyMode(result.nearbyMode);
+        }
       } catch (error) {
         if (!cancelled) {
           setLeaderboard([]);
@@ -231,15 +245,72 @@ export default function Dashboard() {
     };
     loadLeaderboard();
     return () => { cancelled = true; };
-  }, [demoMode, family.city, family.id, family.pinCode, family.stateProvince, leaderboardScope, loading, selectedMonth]);
+  }, [demoMode, family.city, family.id, family.pinCode, family.stateProvince, leaderboardScope, loading, locationVersion, selectedMonth, selectedMonthPoints]);
+
+  const useMyLocation = () => {
+    const client = supabase;
+    if (!navigator.geolocation || !client) {
+      setLocationMessage("Location is not available in this browser.");
+      return;
+    }
+
+    setLocationUpdating(true);
+    setLocationMessage("Waiting for location permission…");
+    navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+      try {
+        const { data: { session } } = await client.auth.getSession();
+        if (!session) throw new Error("Please sign in again.");
+        const response = await fetch("/api/families/location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ latitude: coords.latitude, longitude: coords.longitude })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "Unable to save your location.");
+        setNearbyMode("radius");
+        setLocationMessage("Showing families within 5 km of your approximate location.");
+        setLocationVersion((version) => version + 1);
+      } catch (error) {
+        setLocationMessage(error instanceof Error ? error.message : "Unable to save your location.");
+      } finally {
+        setLocationUpdating(false);
+      }
+    }, () => {
+      setLocationUpdating(false);
+      setLocationMessage("Location permission was not granted. Nearby continues to use your PIN code.");
+    }, { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 });
+  };
+
+  const removeMyLocation = async () => {
+    const client = supabase;
+    if (!client) return;
+    setLocationUpdating(true);
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session) throw new Error("Please sign in again.");
+      const response = await fetch("/api/families/location", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Unable to remove your location.");
+      setNearbyMode("pin");
+      setLocationMessage("Approximate location removed. Nearby now uses your PIN code.");
+      setLocationVersion((version) => version + 1);
+    } catch (error) {
+      setLocationMessage(error instanceof Error ? error.message : "Unable to remove your location.");
+    } finally {
+      setLocationUpdating(false);
+    }
+  };
 
   const handleHouseholdSetup = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
       setSetupError("");
-      await claimHousehold(familyIdInput, houseNoInput);
-    } catch {
-      setSetupError("We could not save your household. Please try again.");
+      await claimHousehold(familyIdInput, claimCodeInput);
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : "We could not save your household. Please try again.");
     }
   };
 
@@ -253,6 +324,10 @@ export default function Dashboard() {
     return <div className="loading">Loading WasteReward…</div>;
   }
 
+  if (profileError && user && !demoMode) {
+    return <main className="setup-page"><section className="setup-card"><div className="logo-mark">♻</div><p className="eyebrow">WASTEREWARD</p><h1>Dashboard unavailable</h1><p className="form-error" role="alert">{profileError}</p><button type="button" className="primary-action" onClick={() => void refreshFamily().catch(() => undefined)}>Try again</button><button type="button" className="text-button" onClick={logout}>Sign out</button></section></main>;
+  }
+
   if (!user && !demoMode) {
     return <LoginCard onLogin={login} demoMode={demoMode} />;
   }
@@ -264,15 +339,15 @@ export default function Dashboard() {
           <div className="logo-mark">♻</div>
           <p className="eyebrow">WELCOME TO WASTEREWARD</p>
           <h1>Set up your household</h1>
-          <p className="login-copy">Enter the details your WasteReward administrator gave you to connect your Google account to your points and streak.</p>
+          <p className="login-copy">Enter the WasteReward ID and one-time claim code provided by your administrator. Sign in with the same email registered for your household.</p>
           <form className="admin-form" onSubmit={handleHouseholdSetup}>
             <label className="field-label">
               WasteReward ID
               <input required value={familyIdInput} onChange={(event) => setFamilyIdInput(event.target.value)} placeholder="e.g. WR101" />
             </label>
             <label className="field-label">
-              House number
-              <input required value={houseNoInput} onChange={(event) => setHouseNoInput(event.target.value)} placeholder="e.g. A-1201" />
+              One-time claim code
+              <input required value={claimCodeInput} onChange={(event) => setClaimCodeInput(event.target.value)} placeholder="e.g. ABCDE-23456" autoComplete="one-time-code" />
             </label>
             {setupError && <p className="form-error">{setupError}</p>}
             <button type="submit" className="primary-action">Open my dashboard</button>
@@ -429,6 +504,7 @@ export default function Dashboard() {
               <span><i className="dot missed-dot" /> Missed</span>
               <span><i className="dot pause-dot" /> Green Pause</span>
               <span><i className="dot future-dot" /> Upcoming</span>
+              <span><i className="dot inactive-dot" /> Not tracked</span>
             </div>
           </article>
 
@@ -443,7 +519,8 @@ export default function Dashboard() {
                   {selectedStatus === "completed" ? "Completed" :
                    selectedStatus === "missed" ? "Missed" :
                    selectedStatus === "green_pause" ? "Green Pause" :
-                   selectedStatus === "pending" ? "Pending" : "Upcoming"}
+                   selectedStatus === "pending" ? "Pending" :
+                   selectedStatus === "inactive" ? "Not tracked" : "Upcoming"}
                 </span>
               </div>
 
@@ -460,6 +537,12 @@ export default function Dashboard() {
                   <h3>Green Pause used</h3>
                   <p>Your streak is protected for this day, but no reward points are awarded.</p>
                   <div className="points-earned">0 <span>points</span></div>
+                </div>
+              ) : selectedStatus === "inactive" ? (
+                <div className="activity-detail muted">
+                  <div className="big-check">—</div>
+                  <h3>Not tracked yet</h3>
+                  <p>This date is before your household joined WasteReward.</p>
                 </div>
               ) : (
                 <div className="activity-detail muted">
@@ -527,10 +610,10 @@ export default function Dashboard() {
                   </div>
 
                   <p className="surprise-copy">
-                    You still need <strong>{monthSummary.pending} eco-days</strong> this month to complete your streak and unlock a surprise reward.
+                    You have <strong>{monthSummary.pending} upcoming eco-days</strong> remaining in this month.
                   </p>
                   <p className="surprise-copy secondary">
-                    After completion, you&apos;ll have saved about <strong>{monthSummary.co2Saved.toFixed(1)} kg</strong> of CO₂ and earned the next reward milestone.
+                    Rewards unlock from verified points. Your progress toward the next milestone is shown above.
                   </p>
                 </div>
               )}
@@ -541,9 +624,10 @@ export default function Dashboard() {
 
         <section className="panel leaderboard-panel">
           <div className="leaderboard-heading">
-            <div><p className="eyebrow">COMMUNITY LEADERBOARD</p><h2>{formatMonthYear(selectedMonth)} rankings</h2><p>Top families by points for the selected month. Nearby uses your PIN code by default.</p></div>
+            <div><p className="eyebrow">COMMUNITY LEADERBOARD</p><h2>{formatMonthYear(selectedMonth)} rankings</h2><p>Top families by points for the selected month. Nearby uses a privacy-rounded 5 km location when enabled, with your PIN code as fallback.</p></div>
             <div className="scope-tabs" role="tablist" aria-label="Leaderboard area">{leaderboardScopes.map((scope) => <button key={scope.value} type="button" role="tab" aria-selected={leaderboardScope === scope.value} className={leaderboardScope === scope.value ? "active" : ""} onClick={() => setLeaderboardScope(scope.value)}>{scope.label}</button>)}</div>
           </div>
+          {leaderboardScope === "nearby" && !demoMode && <div className="location-controls"><div><strong>{nearbyMode === "radius" ? "5 km location enabled" : "Using PIN-code area"}</strong><span>{locationMessage || (nearbyMode === "radius" ? "Only coordinates rounded to roughly 1 km are stored." : "Enable location for a more accurate nearby leaderboard.")}</span></div><div className="location-actions"><button type="button" onClick={useMyLocation} disabled={locationUpdating}>{locationUpdating ? "Working…" : nearbyMode === "radius" ? "Update location" : "Use my location"}</button>{nearbyMode === "radius" && <button type="button" onClick={removeMyLocation} disabled={locationUpdating}>Remove location</button>}</div></div>}
           {leaderboardLoading ? <p className="empty-state">Loading rankings…</p> : leaderboardError ? <p className="form-error">{leaderboardError}</p> : leaderboard.length ? <div className="leaderboard-table" role="table" aria-label={`${formatMonthYear(selectedMonth)} leaderboard`}>
             <div className="leaderboard-row leaderboard-labels" role="row"><span>Rank</span><span>Family</span><span>Location</span><span>Points</span></div>
             {leaderboard.slice(0, 20).map((entry) => <div className={`leaderboard-row ${entry.is_current ? "current" : ""}`} role="row" key={entry.waste_reward_id}>

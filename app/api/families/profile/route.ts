@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { FAMILY_PROFILE_SELECT } from "@/lib/family-select";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
 
     const { data: family, error } = await admin
       .from("families")
-      .select("*, point_transactions(date, reason, points)")
+      .select(FAMILY_PROFILE_SELECT)
       .eq("user_id", authData.user.id)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
         referrals: (referrals ?? []).map(summarize),
         nearby_families: (nearby ?? []).map(summarize)
       }
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load household." }, { status: 401 });
   }

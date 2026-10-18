@@ -146,3 +146,6 @@ $$;
 drop trigger if exists award_referral_green_pause_after_insert on public.families;
 create trigger award_referral_green_pause_after_insert
 after insert on public.families for each row execute function public.award_referral_green_pause();
+
+-- Make the new five-argument RPC available to PostgREST immediately.
+notify pgrst, 'reload schema';

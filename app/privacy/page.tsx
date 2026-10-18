@@ -1,0 +1,8 @@
+import type { Metadata } from "next";
+import { Footer, Navbar } from "@/components/PublicSite";
+
+export const metadata: Metadata = { title: "Privacy Policy", description: "How WasteReward handles member and household information." };
+
+export default function PrivacyPage() {
+  return <><Navbar /><main id="main-content" className="legal-page"><p className="eyebrow">PRIVACY</p><h1>Privacy policy</h1><p className="legal-updated">Last updated: 18 October 2026</p><section><h2>Information we use</h2><p>WasteReward uses your Google account identity, household contact and address information, activity and points history, referral relationships, and information you send through our contact channels to operate the service.</p><h2>Approximate location</h2><p>Location is optional. When you choose “Use my location,” coordinates are rounded to two decimal places—roughly one kilometre—before storage and are used for the 5 km Nearby leaderboard. You can remove this information from the dashboard at any time.</p><h2>How information is shared</h2><p>Leaderboard members can see a household name, WasteReward ID, family number, locality and monthly points. We do not display household contact details or coordinates. Service providers such as Supabase and Google authentication process data needed to operate sign-in and storage.</p><h2>Retention and control</h2><p>We retain household and points records while the household participates in WasteReward. Contact us to request access, correction, account unlinking, or deletion, subject to records we must retain for fraud prevention or legal obligations.</p><h2>Contact</h2><p>Use the WasteReward contact page for privacy questions or requests.</p></section></main><Footer /></>;
+}

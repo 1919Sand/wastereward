@@ -48,9 +48,13 @@ Supabase provides Google authentication and PostgreSQL. The regular dashboard ne
 5. Copy `.env.local.example` to `.env.local`; add your Project URL, anon key, service-role key, and administrator emails.
 6. Restart `npm run dev`.
 
-In `/admin`, create each household with its family, contact, address, and optional referral details. On a member's first sign-in, they enter their house number and WasteReward ID to claim that household. On later sign-ins, their own dashboard loads directly.
+In `/admin`, create each household with its family, contact, address, and optional referral details. The admin receives an expiring one-time claim code. On a member's first sign-in, they use that code and their WasteReward ID while signed in with the registered Google email. On later sign-ins, their own dashboard loads directly.
 
 If this project was already deployed using an earlier schema, run [`supabase/dashboard-update.sql`](supabase/dashboard-update.sql) once. It adds the profile fields, repairs duplicate same-day point records, and enforces one replaceable point entry per family per day. Then run [`supabase/leaderboard-update.sql`](supabase/leaderboard-update.sql) to enable scoped monthly leaderboards.
+
+Run [`supabase/location-leaderboard-update.sql`](supabase/location-leaderboard-update.sql) afterward to let members opt into a 5 km Nearby leaderboard. Browser coordinates are rounded to two decimal places before storage; members who do not grant location permission continue using the PIN-code leaderboard.
+
+Finally, run [`supabase/production-hardening-update.sql`](supabase/production-hardening-update.sql). It enables expiring one-time household claim codes, preserves the source of Green Pause balances during corrections, records an administrator audit trail for point changes, and records the applied schema version. Run the four update files in the order listed here; new databases can use `supabase/schema.sql` directly.
 
 The `families` table is linked to a member's Google account only after the household is claimed.
 
@@ -94,4 +98,4 @@ To activate it, add these server-only values to `.env.local`:
 - `SUPABASE_SERVICE_ROLE_KEY`: find this server-only key in Supabase Project Settings → API.
 - `NEXT_PUBLIC_WHATSAPP_NUMBER`: the WasteReward WhatsApp onboarding number in international format with digits only. It defaults to `919509925939`; override it here if the number changes. “Get Started” opens the interest form, where this WhatsApp shortcut appears above the form.
 
-Never use a `NEXT_PUBLIC_` prefix for the service-role key and never commit `.env.local`. The admin gives each household a short ID such as `WR101`; the member claims it once using that ID and their house number. Every manual point change is written to `point_transactions`.
+Never use a `NEXT_PUBLIC_` prefix for the service-role key and never commit `.env.local`. The admin gives each household a short ID such as `WR101` and an expiring one-time claim code. Every manual point change is written to `point_transactions` and its administrator audit trail is written to `admin_point_audit`.

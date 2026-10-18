@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     const { data: family, error: familyError } = await admin
       .from("families")
-      .select("id")
+      .select("id, latitude, longitude")
       .eq("user_id", authData.user.id)
       .maybeSingle();
     if (familyError) throw new Error(familyError.message);
@@ -36,7 +36,10 @@ export async function GET(request: NextRequest) {
     });
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ entries: data ?? [] });
+    return NextResponse.json({
+      entries: data ?? [],
+      nearbyMode: scope === "nearby" && family.latitude != null && family.longitude != null ? "radius" : "pin"
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load the leaderboard." }, { status: 401 });
   }

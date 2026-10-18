@@ -18,7 +18,13 @@ create table public.families (
   locality text not null,
   country text not null default 'India',
   pin_code text not null,
+  latitude double precision check (latitude is null or latitude between -90 and 90),
+  longitude double precision check (longitude is null or longitude between -180 and 180),
+  location_updated_at timestamptz,
   user_id uuid unique references auth.users(id),
+  claim_code_hash text,
+  claim_code_expires_at timestamptz,
+  claim_code_used_at timestamptz,
   referred_by_family_id uuid references public.families(id) on delete set null,
   society text not null default 'WasteReward Community',
   points integer not null default 0 check (points >= 0),
@@ -38,12 +44,28 @@ create table public.point_transactions (
   points integer not null,
   reason text not null,
   date date not null,
+  status text not null default 'completed' check (status in ('completed', 'missed', 'green_pause')),
+  pause_source text check (pause_source is null or pause_source in ('regular', 'referral')),
   created_at timestamptz not null default now(),
   unique (family_id, date)
 );
 
+create table public.admin_point_audit (
+  id bigint generated always as identity primary key,
+  family_id uuid not null references public.families(id) on delete cascade,
+  admin_email text not null,
+  activity_date date not null,
+  previous_points integer not null,
+  new_points integer not null,
+  previous_status text,
+  new_status text not null,
+  reason text not null,
+  created_at timestamptz not null default now()
+);
+
 alter table public.families enable row level security;
 alter table public.point_transactions enable row level security;
+alter table public.admin_point_audit enable row level security;
 
 create policy "Members can read their household" on public.families
   for select to authenticated using (auth.uid() = user_id);
@@ -52,28 +74,35 @@ create policy "Members can read their point history" on public.point_transaction
     exists (select 1 from public.families where families.id = point_transactions.family_id and families.user_id = auth.uid())
   );
 
-create or replace function public.claim_family(p_waste_reward_id text, p_house_no text, p_user_id uuid)
+create or replace function public.claim_family(p_waste_reward_id text, p_claim_code_hash text, p_user_id uuid, p_email text)
 returns table (id uuid)
 language plpgsql security definer set search_path = public as $$
 begin
   return query
   update public.families
      set user_id = p_user_id
+       , claim_code_used_at = now()
+       , claim_code_hash = null
    where waste_reward_id = p_waste_reward_id
-     and house_no = p_house_no
+     and claim_code_hash = p_claim_code_hash
+     and claim_code_expires_at > now()
+     and claim_code_used_at is null
+     and lower(email) = lower(p_email)
      and user_id is null
   returning families.id;
 end;
 $$;
 
-create or replace function public.admin_adjust_points(p_waste_reward_id text, p_reason text, p_points integer, p_date date, p_status text default null)
+create or replace function public.admin_adjust_points(p_waste_reward_id text, p_reason text, p_points integer, p_date date, p_status text, p_admin_email text)
 returns void
 language plpgsql security definer set search_path = public as $$
 declare
   family_row public.families%rowtype;
   previous_points integer := 0;
   previous_status text;
+  previous_pause_source text;
   next_status text;
+  next_pause_source text;
   updated_days jsonb;
   cursor_date date;
   computed_current integer := 0;
@@ -89,34 +118,47 @@ begin
   if next_status in ('missed', 'green_pause') and p_points <> 0 then
     raise exception 'Missed and Green Pause days must have zero points.';
   end if;
+  if next_status = 'completed' and p_points <= 0 then
+    raise exception 'Completed days must award positive points.';
+  end if;
+  if p_date > (now() at time zone 'Asia/Kolkata')::date then
+    raise exception 'Future activity dates are not allowed.';
+  end if;
 
-  select points into previous_points
+  select points, status, pause_source into previous_points, previous_status, previous_pause_source
     from public.point_transactions
    where family_id = family_row.id and date = p_date;
   previous_points := coalesce(previous_points, 0);
-  previous_status := family_row.days ->> p_date::text;
+  previous_status := coalesce(previous_status, family_row.days ->> p_date::text);
 
   if family_row.points - previous_points + p_points < 0 then
     raise exception 'Points cannot fall below zero.';
   end if;
 
   if previous_status = 'green_pause' and next_status <> 'green_pause' then
-    family_row.green_pause_days := family_row.green_pause_days + 1;
+    if previous_pause_source = 'referral' then
+      family_row.referral_green_pause_days := family_row.referral_green_pause_days + 1;
+    else
+      family_row.green_pause_days := family_row.green_pause_days + 1;
+    end if;
   elsif previous_status is distinct from 'green_pause' and next_status = 'green_pause' then
     if family_row.referral_green_pause_days > 0 then
       family_row.referral_green_pause_days := family_row.referral_green_pause_days - 1;
+      next_pause_source := 'referral';
     elsif family_row.green_pause_days > 0 then
       family_row.green_pause_days := family_row.green_pause_days - 1;
+      next_pause_source := 'regular';
     else
       raise exception 'No Green Pause days are available.';
     end if;
   end if;
+  if previous_status = 'green_pause' and next_status = 'green_pause' then next_pause_source := previous_pause_source; end if;
 
   updated_days := jsonb_set(family_row.days, array[p_date::text], to_jsonb(next_status), true);
   select max(key::date) into cursor_date
     from jsonb_each_text(updated_days)
-   where key::date <= current_date and value in ('completed', 'missed', 'green_pause');
-  if cursor_date < current_date - 1 then cursor_date := null; end if;
+   where key::date <= (now() at time zone 'Asia/Kolkata')::date and value in ('completed', 'missed', 'green_pause');
+  if cursor_date < (now() at time zone 'Asia/Kolkata')::date - 1 then cursor_date := null; end if;
   while cursor_date is not null and updated_days ->> cursor_date::text in ('completed', 'green_pause') loop
     computed_current := computed_current + 1;
     cursor_date := cursor_date - 1;
@@ -128,6 +170,9 @@ begin
     ) grouped_days group by run_group
   ) streaks;
 
+  insert into public.admin_point_audit (family_id, admin_email, activity_date, previous_points, new_points, previous_status, new_status, reason)
+    values (family_row.id, p_admin_email, p_date, previous_points, p_points, previous_status, next_status, p_reason);
+
   update public.families
     set points = points - previous_points + p_points,
         days = updated_days,
@@ -137,15 +182,15 @@ begin
         referral_green_pause_days = family_row.referral_green_pause_days
     where id = family_row.id;
   delete from public.point_transactions where family_id = family_row.id and date = p_date;
-  insert into public.point_transactions (family_id, points, reason, date)
-    values (family_row.id, p_points, p_reason, p_date);
+  insert into public.point_transactions (family_id, points, reason, date, status, pause_source)
+    values (family_row.id, p_points, p_reason, p_date, next_status, next_pause_source);
 end;
 $$;
 
-revoke all on function public.claim_family(text, text, uuid) from public;
-revoke all on function public.admin_adjust_points(text, text, integer, date, text) from public;
-grant execute on function public.claim_family(text, text, uuid) to service_role;
-grant execute on function public.admin_adjust_points(text, text, integer, date, text) to service_role;
+revoke all on function public.claim_family(text, text, uuid, text) from public;
+revoke all on function public.admin_adjust_points(text, text, integer, date, text, text) from public;
+grant execute on function public.claim_family(text, text, uuid, text) to service_role;
+grant execute on function public.admin_adjust_points(text, text, integer, date, text, text) to service_role;
 
 create or replace function public.award_referral_green_pause()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -180,7 +225,7 @@ returns table (
 )
 language sql security definer stable set search_path = public as $$
   with viewer as (
-    select id, city, state_province, pin_code, country
+    select id, city, state_province, pin_code, country, latitude, longitude
       from public.families
      where id = p_viewer_family_id
   ), scores as (
@@ -197,7 +242,18 @@ language sql security definer stable set search_path = public as $$
        when 'india' then lower(f.country) = 'india'
        when 'state' then lower(f.state_province) = lower(v.state_province)
        when 'city' then lower(f.city) = lower(v.city)
-       when 'nearby' then f.pin_code = v.pin_code
+       when 'nearby' then case
+         when v.latitude is not null and v.longitude is not null
+           then f.id = v.id
+             or (f.latitude is not null and f.longitude is not null and
+               6371 * 2 * asin(least(1, sqrt(
+                 power(sin(radians(f.latitude - v.latitude) / 2), 2) +
+                 cos(radians(v.latitude)) * cos(radians(f.latitude)) *
+                 power(sin(radians(f.longitude - v.longitude) / 2), 2)
+               ))) <= 5)
+             or (f.latitude is null and f.longitude is null and f.pin_code = v.pin_code)
+         else f.pin_code = v.pin_code
+       end
        else false
      end
      group by f.id

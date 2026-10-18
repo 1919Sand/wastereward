@@ -1,4 +1,4 @@
-export type DayStatus = "completed" | "missed" | "green_pause" | "pending" | "future";
+export type DayStatus = "completed" | "missed" | "green_pause" | "pending" | "future" | "inactive";
 
 export type FamilySummary = {
   id: string;
@@ -27,6 +27,7 @@ export type FamilyData = {
   country: string;
   pinCode: string;
   society: string;
+  createdAt: string;
   points: number;
   currentStreak: number;
   bestStreak: number;
@@ -126,6 +127,7 @@ export const demoFamily: FamilyData = {
   country: "India",
   pinCode: "110001",
   society: "WasteReward Community",
+  createdAt: "2026-08-01T00:00:00.000Z",
   points: 120,
   currentStreak: 24,
   bestStreak: 24,
@@ -174,6 +176,7 @@ export const demoFamilyTwo: FamilyData = {
   country: "India",
   pinCode: "110001",
   society: "WasteReward Community",
+  createdAt: "2026-08-01T00:00:00.000Z",
   points: 90,
   currentStreak: 14,
   bestStreak: 16,
@@ -230,6 +233,7 @@ export function makeEmptyFamily(familyId: string, familyName: string, houseNo: s
     country: "India",
     pinCode: "",
     society: "WasteReward Community",
+    createdAt: new Date().toISOString(),
     points: 0,
     currentStreak: 0,
     bestStreak: 0,
