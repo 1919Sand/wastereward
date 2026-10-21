@@ -285,7 +285,7 @@ create function public.get_monthly_leaderboard(
   p_limit integer default 20
 )
 returns table (
-  position bigint,
+  "position" bigint,
   waste_reward_id text,
   family_number text,
   family_name text,
@@ -337,16 +337,16 @@ language sql security definer stable set search_path = public as $$
      end
      group by f.id
   ), ranked as (
-    select row_number() over (order by monthly_points desc, created_at asc, waste_reward_id asc) as position,
+    select row_number() over (order by monthly_points desc, created_at asc, waste_reward_id asc) as "position",
            scores.*
       from scores
   )
-  select r.position, r.waste_reward_id, r.family_number, r.family_name,
+  select r."position", r.waste_reward_id, r.family_number, r.family_name,
          r.city, r.state_province, r.locality, r.monthly_points,
          r.id = p_viewer_family_id as is_current
     from ranked r
-   where r.position <= least(greatest(p_limit, 1), 20) or r.id = p_viewer_family_id
-   order by r.position;
+   where r."position" <= least(greatest(p_limit, 1), 20) or r.id = p_viewer_family_id
+   order by r."position";
 $$;
 revoke all on function public.get_monthly_leaderboard(uuid, text, date, integer) from public;
 grant execute on function public.get_monthly_leaderboard(uuid, text, date, integer) to service_role;

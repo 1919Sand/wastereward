@@ -36,6 +36,7 @@ export default function AdminPanel() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [family, setFamily] = useState(emptyFamily);
   const todayKey = dateKeyInTimeZone();
@@ -115,9 +116,31 @@ export default function AdminPanel() {
     }));
   }
 
+  async function signOut() {
+    setSigningOut(true);
+    setNotice(null);
+    const { error } = await supabase!.auth.signOut();
+    if (error) {
+      setNotice({ type: "error", message: "Unable to sign out. Please try again." });
+      setSigningOut(false);
+    }
+  }
+
   return (
     <main className="admin-page">
-      <header className="admin-header"><div><p className="eyebrow">WASTEREWARD</p><h1>Admin panel</h1></div><div><span>{user.email}</span><button className="logout-btn" onClick={() => supabase!.auth.signOut()}>Sign out</button></div></header>
+      <header className="admin-header">
+        <div><p className="eyebrow">WASTEREWARD</p><h1>Admin panel</h1></div>
+        <div className="admin-account-actions">
+          <div className="admin-account" title={user.email ?? "Administrator"}>
+            <span className="admin-account-avatar" aria-hidden="true">{user.email?.[0]?.toUpperCase() ?? "A"}</span>
+            <span className="admin-account-copy"><small>Signed in as</small><strong>{user.email ?? "Administrator"}</strong></span>
+          </div>
+          <button type="button" className="admin-logout-btn" onClick={signOut} disabled={signingOut}>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 8l4 4-4 4M18 12H9" /></svg>
+            {signingOut ? "Signing out…" : "Sign out"}
+          </button>
+        </div>
+      </header>
       {notice && <p className={`admin-notice ${notice.type}`}>{notice.message}</p>}
       {claimCode && <section className="admin-claim-code" role="status"><span>HOUSEHOLD {createdFamilyId ? `· ${createdFamilyId}` : ""}</span><strong>{claimCode}</strong><button type="button" onClick={() => navigator.clipboard.writeText(`${createdFamilyId ? `${createdFamilyId} · ` : ""}${claimCode}`)}>Copy details</button><small>Share this WasteReward ID and one-time claim code securely. The code expires in 30 days.</small></section>}
       <section className="admin-stack">
