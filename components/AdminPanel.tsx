@@ -42,6 +42,7 @@ export default function AdminPanel() {
   const [pointUpdate, setPointUpdate] = useState({ familyId: "", reason: "Daily waste collection", points: "5", status: "completed", date: todayKey });
   const [history, setHistory] = useState<HistoryResult>(null);
   const [claimCode, setClaimCode] = useState("");
+  const [createdFamilyId, setCreatedFamilyId] = useState("");
 
   useEffect(() => {
     if (!supabase) { setLoading(false); return; }
@@ -61,6 +62,7 @@ export default function AdminPanel() {
     try {
       const result = await adminFetch("/api/admin/families", { method: "POST", body: JSON.stringify(family) });
       setClaimCode(result.claimCode);
+      setCreatedFamilyId(result.familyId);
       setNotice({ type: "success", message: "Household created. Copy the one-time claim code below; it expires in 30 days." });
       setFamily(emptyFamily);
     } catch (error) {
@@ -75,6 +77,7 @@ export default function AdminPanel() {
     try {
       const result = await adminFetch("/api/admin/claim-code", { method: "POST", body: JSON.stringify({ familyId }) });
       setClaimCode(result.claimCode);
+      setCreatedFamilyId(familyId.trim().toUpperCase());
       setNotice({ type: "success", message: "A new one-time claim code was generated and will expire in 30 days." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to generate a claim code." });
@@ -116,32 +119,32 @@ export default function AdminPanel() {
     <main className="admin-page">
       <header className="admin-header"><div><p className="eyebrow">WASTEREWARD</p><h1>Admin panel</h1></div><div><span>{user.email}</span><button className="logout-btn" onClick={() => supabase!.auth.signOut()}>Sign out</button></div></header>
       {notice && <p className={`admin-notice ${notice.type}`}>{notice.message}</p>}
-      {claimCode && <section className="admin-claim-code" role="status"><span>ONE-TIME HOUSEHOLD CLAIM CODE</span><strong>{claimCode}</strong><button type="button" onClick={() => navigator.clipboard.writeText(claimCode)}>Copy code</button><small>Share securely with the registered family. It can be used once and expires in 30 days.</small></section>}
+      {claimCode && <section className="admin-claim-code" role="status"><span>HOUSEHOLD {createdFamilyId ? `· ${createdFamilyId}` : ""}</span><strong>{claimCode}</strong><button type="button" onClick={() => navigator.clipboard.writeText(`${createdFamilyId ? `${createdFamilyId} · ` : ""}${claimCode}`)}>Copy details</button><small>Share this WasteReward ID and one-time claim code securely. The code expires in 30 days.</small></section>}
       <section className="admin-stack">
         <form className="panel admin-form" onSubmit={submitFamily}>
           <p className="eyebrow">CREATE FAMILY</p><h2>Create a member household</h2>
           <fieldset><legend>Family & contact details</legend><div className="form-grid">
-            <label className="field-label">WasteReward ID<input required placeholder="e.g. WR101" value={family.familyId} onChange={(e) => updateFamily("familyId", e.target.value)} /></label>
-            <label className="field-label">Family number<input required placeholder="e.g. F1" value={family.familyNumber} onChange={(e) => updateFamily("familyNumber", e.target.value)} /></label>
+            <label className="field-label">WasteReward ID (optional)<input placeholder="Auto-generated if blank" value={family.familyId} onChange={(e) => updateFamily("familyId", e.target.value)} /></label>
+            <label className="field-label">Family number (optional)<input placeholder="Auto-generated if blank" value={family.familyNumber} onChange={(e) => updateFamily("familyNumber", e.target.value)} /></label>
             <label className="field-label">Family name<input required value={family.familyName} onChange={(e) => updateFamily("familyName", e.target.value)} /></label>
-            <label className="field-label">Email ID<input required type="email" value={family.email} onChange={(e) => updateFamily("email", e.target.value)} /></label>
+            <label className="field-label">Email ID (optional)<input type="email" value={family.email} onChange={(e) => updateFamily("email", e.target.value)} /></label>
             <label className="field-label">Mobile / WhatsApp<input required type="tel" value={family.mobileNumber} onChange={(e) => updateFamily("mobileNumber", e.target.value)} /></label>
             <label className="field-label">Alternate mobile (optional)<input type="tel" value={family.alternateMobileNumber} onChange={(e) => updateFamily("alternateMobileNumber", e.target.value)} /></label>
-            <label className="field-label">Family leader name<input required value={family.familyLeaderName} onChange={(e) => updateFamily("familyLeaderName", e.target.value)} /></label>
-            <label className="field-label">Family leader mobile<input required type="tel" value={family.familyLeaderMobile} onChange={(e) => updateFamily("familyLeaderMobile", e.target.value)} /></label>
+            <label className="field-label">Family leader name (optional)<input value={family.familyLeaderName} onChange={(e) => updateFamily("familyLeaderName", e.target.value)} /></label>
+            <label className="field-label">Family leader mobile (optional)<input type="tel" value={family.familyLeaderMobile} onChange={(e) => updateFamily("familyLeaderMobile", e.target.value)} /></label>
             <label className="field-label">Total members (optional)<input type="number" min="1" step="1" value={family.totalMembers} onChange={(e) => updateFamily("totalMembers", e.target.value)} /></label>
             <label className="field-label">Referred by ID (optional)<input placeholder="e.g. WR001" value={family.referredBy} onChange={(e) => updateFamily("referredBy", e.target.value)} /></label>
           </div></fieldset>
           <fieldset><legend>Address details</legend><div className="form-grid">
             <label className="field-label">House number<input required value={family.houseNo} onChange={(e) => updateFamily("houseNo", e.target.value)} /></label>
-            <label className="field-label">Address line 1<input required value={family.addressLine1} onChange={(e) => updateFamily("addressLine1", e.target.value)} /></label>
+            <label className="field-label">Address line 1 (optional)<input value={family.addressLine1} onChange={(e) => updateFamily("addressLine1", e.target.value)} /></label>
             <label className="field-label full-field">Address line 2 (optional)<input value={family.addressLine2} onChange={(e) => updateFamily("addressLine2", e.target.value)} /></label>
-            <label className="field-label">City<input required value={family.city} onChange={(e) => updateFamily("city", e.target.value)} /></label>
-            <label className="field-label">District<input required value={family.district} onChange={(e) => updateFamily("district", e.target.value)} /></label>
-            <label className="field-label">State / Province<input required value={family.stateProvince} onChange={(e) => updateFamily("stateProvince", e.target.value)} /></label>
-            <label className="field-label">Locality / Landmark<input required value={family.locality} onChange={(e) => updateFamily("locality", e.target.value)} /></label>
-            <label className="field-label">Country<input required value={family.country} onChange={(e) => updateFamily("country", e.target.value)} /></label>
-            <label className="field-label">PIN code<input required inputMode="numeric" value={family.pinCode} onChange={(e) => updateFamily("pinCode", e.target.value)} /></label>
+            <label className="field-label">City (optional)<input value={family.city} onChange={(e) => updateFamily("city", e.target.value)} /></label>
+            <label className="field-label">District (optional)<input value={family.district} onChange={(e) => updateFamily("district", e.target.value)} /></label>
+            <label className="field-label">State / Province (optional)<input value={family.stateProvince} onChange={(e) => updateFamily("stateProvince", e.target.value)} /></label>
+            <label className="field-label">Locality / Landmark (optional)<input value={family.locality} onChange={(e) => updateFamily("locality", e.target.value)} /></label>
+            <label className="field-label">Country (optional)<input value={family.country} onChange={(e) => updateFamily("country", e.target.value)} /></label>
+            <label className="field-label">PIN code (optional)<input inputMode="numeric" value={family.pinCode} onChange={(e) => updateFamily("pinCode", e.target.value)} /></label>
           </div></fieldset>
           <button className="primary-action" type="submit" disabled={saving}>Create family</button>
         </form>

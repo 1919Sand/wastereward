@@ -52,6 +52,7 @@ export default function Dashboard() {
     family,
     loading,
     profileError,
+    schemaOutdated,
     login,
     logout,
     refreshFamily,
@@ -195,10 +196,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (loading) return;
-    let cancelled = false;
-    const loadLeaderboard = async () => {
-      setLeaderboardLoading(true);
+    if (schemaOutdated) {
       setLeaderboard([]);
+      setLeaderboardError("Community rankings are temporarily unavailable.");
+      return;
+    }
+    setLeaderboard([]);
+    let cancelled = false;
+    let inFlight = false;
+    const loadLeaderboard = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      setLeaderboardLoading(true);
       setLeaderboardError("");
       try {
         if (demoMode) {
@@ -226,7 +235,8 @@ export default function Dashboard() {
         const { data: { session } } = await supabase!.auth.getSession();
         if (!session) throw new Error("Please sign in again to view the leaderboard.");
         const response = await fetch(`/api/leaderboard?scope=${leaderboardScope}&month=${selectedMonth}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` }
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: "no-store"
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Unable to load the leaderboard.");
@@ -236,16 +246,27 @@ export default function Dashboard() {
         }
       } catch (error) {
         if (!cancelled) {
-          setLeaderboard([]);
           setLeaderboardError(error instanceof Error ? error.message : "Unable to load the leaderboard.");
         }
       } finally {
+        inFlight = false;
         if (!cancelled) setLeaderboardLoading(false);
       }
     };
-    loadLeaderboard();
-    return () => { cancelled = true; };
-  }, [demoMode, family.city, family.id, family.pinCode, family.stateProvince, leaderboardScope, loading, locationVersion, selectedMonth, selectedMonthPoints]);
+    void loadLeaderboard();
+    const refreshLeaderboard = () => {
+      if (document.visibilityState === "visible") void loadLeaderboard();
+    };
+    const interval = window.setInterval(refreshLeaderboard, 30_000);
+    window.addEventListener("focus", refreshLeaderboard);
+    document.addEventListener("visibilitychange", refreshLeaderboard);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshLeaderboard);
+      document.removeEventListener("visibilitychange", refreshLeaderboard);
+    };
+  }, [demoMode, family.city, family.id, family.pinCode, family.stateProvince, leaderboardScope, loading, locationVersion, schemaOutdated, selectedMonth, selectedMonthPoints]);
 
   const useMyLocation = () => {
     const client = supabase;
@@ -339,7 +360,7 @@ export default function Dashboard() {
           <div className="logo-mark">♻</div>
           <p className="eyebrow">WELCOME TO WASTEREWARD</p>
           <h1>Set up your household</h1>
-          <p className="login-copy">Enter the WasteReward ID and one-time claim code provided by your administrator. Sign in with the same email registered for your household.</p>
+          <p className="login-copy">Enter the WasteReward ID and one-time claim code provided by your administrator. If an email was registered for your household, sign in with that same email.</p>
           <form className="admin-form" onSubmit={handleHouseholdSetup}>
             <label className="field-label">
               WasteReward ID
@@ -386,6 +407,7 @@ export default function Dashboard() {
       </header>
 
       <main className="dashboard">
+        {schemaOutdated && <p className="dashboard-schema-notice" role="status">Your core dashboard is available. Community rankings and location features are temporarily unavailable while the account database is updated.</p>}
         <section className="welcome">
           <div>
             <p className="eyebrow">YOUR GREEN JOURNEY</p>
@@ -627,7 +649,7 @@ export default function Dashboard() {
             <div><p className="eyebrow">COMMUNITY LEADERBOARD</p><h2>{formatMonthYear(selectedMonth)} rankings</h2><p>Top families by points for the selected month. Nearby uses a privacy-rounded 5 km location when enabled, with your PIN code as fallback.</p></div>
             <div className="scope-tabs" role="tablist" aria-label="Leaderboard area">{leaderboardScopes.map((scope) => <button key={scope.value} type="button" role="tab" aria-selected={leaderboardScope === scope.value} className={leaderboardScope === scope.value ? "active" : ""} onClick={() => setLeaderboardScope(scope.value)}>{scope.label}</button>)}</div>
           </div>
-          {leaderboardScope === "nearby" && !demoMode && <div className="location-controls"><div><strong>{nearbyMode === "radius" ? "5 km location enabled" : "Using PIN-code area"}</strong><span>{locationMessage || (nearbyMode === "radius" ? "Only coordinates rounded to roughly 1 km are stored." : "Enable location for a more accurate nearby leaderboard.")}</span></div><div className="location-actions"><button type="button" onClick={useMyLocation} disabled={locationUpdating}>{locationUpdating ? "Working…" : nearbyMode === "radius" ? "Update location" : "Use my location"}</button>{nearbyMode === "radius" && <button type="button" onClick={removeMyLocation} disabled={locationUpdating}>Remove location</button>}</div></div>}
+          {leaderboardScope === "nearby" && !demoMode && !schemaOutdated && <div className="location-controls"><div><strong>{nearbyMode === "radius" ? "5 km location enabled" : "Using PIN-code area"}</strong><span>{locationMessage || (nearbyMode === "radius" ? "Only coordinates rounded to roughly 1 km are stored." : "Enable location for a more accurate nearby leaderboard.")}</span></div><div className="location-actions"><button type="button" onClick={useMyLocation} disabled={locationUpdating}>{locationUpdating ? "Working…" : nearbyMode === "radius" ? "Update location" : "Use my location"}</button>{nearbyMode === "radius" && <button type="button" onClick={removeMyLocation} disabled={locationUpdating}>Remove location</button>}</div></div>}
           {leaderboardLoading ? <p className="empty-state">Loading rankings…</p> : leaderboardError ? <p className="form-error">{leaderboardError}</p> : leaderboard.length ? <div className="leaderboard-table" role="table" aria-label={`${formatMonthYear(selectedMonth)} leaderboard`}>
             <div className="leaderboard-row leaderboard-labels" role="row"><span>Rank</span><span>Family</span><span>Location</span><span>Points</span></div>
             {leaderboard.slice(0, 20).map((entry) => <div className={`leaderboard-row ${entry.is_current ? "current" : ""}`} role="row" key={entry.waste_reward_id}>

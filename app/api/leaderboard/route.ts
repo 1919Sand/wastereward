@@ -25,7 +25,12 @@ export async function GET(request: NextRequest) {
       .select("id, latitude, longitude")
       .eq("user_id", authData.user.id)
       .maybeSingle();
-    if (familyError) throw new Error(familyError.message);
+    if (familyError) {
+      if (familyError.code === "42703" || familyError.code === "PGRST204") {
+        throw new Error("Community rankings are unavailable until the production database update is applied.");
+      }
+      throw new Error(familyError.message);
+    }
     if (!family) throw new Error("No household is linked to this account.");
 
     const { data, error } = await admin.rpc("get_monthly_leaderboard", {
@@ -34,12 +39,17 @@ export async function GET(request: NextRequest) {
       p_month: `${month}-01`,
       p_limit: 20
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.code === "PGRST202" || error.message.includes("schema cache")) {
+        throw new Error("Community rankings are unavailable until the production database update is applied.");
+      }
+      throw new Error(error.message);
+    }
 
     return NextResponse.json({
       entries: data ?? [],
       nearbyMode: scope === "nearby" && family.latitude != null && family.longitude != null ? "radius" : "pin"
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load the leaderboard." }, { status: 401 });
   }

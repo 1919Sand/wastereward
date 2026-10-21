@@ -63,6 +63,7 @@ button { font: inherit; }
 .admin-notice { margin: 0 0 18px; border-radius: 12px; padding: 12px 14px; font-size: 13px; }
 .admin-notice.success { background: #e7f5dc; color: #28612d; }
 .admin-notice.error { background: #fff0ef; color: #b33d32; }
+.dashboard-schema-notice { margin: 0; border-radius: 12px; padding: 12px 14px; background: #fff7df; color: #765b11; font-size: 13px; }
 .admin-form { display: grid; gap: 14px; }
 .admin-stack { display: grid; gap: 18px; }
 .admin-form fieldset { min-width: 0; margin: 4px 0; padding: 18px; border: 1px solid var(--border); border-radius: 14px; }

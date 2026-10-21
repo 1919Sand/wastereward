@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (error) {
       if (error.code === "PGRST204" || error.message.includes("latitude")) {
-        throw new Error("Location ranking is not enabled in Supabase yet. Run supabase/location-leaderboard-update.sql first.");
+        throw new Error("Location ranking is not enabled yet. Run supabase/production-hardening-update.sql first.");
       }
       throw new Error(error.message);
     }
@@ -58,7 +58,12 @@ export async function DELETE(request: NextRequest) {
       .eq("user_id", authData.user.id)
       .select("id")
       .maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.code === "PGRST204" || error.message.includes("latitude")) {
+        throw new Error("Location ranking is not enabled yet. Run supabase/production-hardening-update.sql first.");
+      }
+      throw new Error(error.message);
+    }
     if (!data) throw new Error("No household is linked to this account.");
     return NextResponse.json({ ok: true });
   } catch (error) {

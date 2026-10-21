@@ -20,7 +20,7 @@ alter table public.families
   add column if not exists referral_green_pause_days integer not null default 0;
 
 update public.families set
-  family_number = coalesce(family_number, 'F1'),
+  family_number = coalesce(nullif(btrim(family_number), ''), 'F-' || waste_reward_id),
   email = coalesce(email, ''),
   mobile_number = coalesce(mobile_number, ''),
   family_leader_name = coalesce(family_leader_name, family_name),

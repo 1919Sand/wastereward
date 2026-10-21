@@ -1,3 +1,8 @@
+create table public.schema_migrations (
+  version text primary key,
+  applied_at timestamptz not null default now()
+);
+
 create table public.families (
   id uuid primary key default gen_random_uuid(),
   waste_reward_id text not null unique,
@@ -21,6 +26,7 @@ create table public.families (
   latitude double precision check (latitude is null or latitude between -90 and 90),
   longitude double precision check (longitude is null or longitude between -180 and 180),
   location_updated_at timestamptz,
+  constraint families_location_pair_check check ((latitude is null) = (longitude is null)),
   user_id uuid unique references auth.users(id),
   claim_code_hash text,
   claim_code_expires_at timestamptz,
@@ -63,9 +69,16 @@ create table public.admin_point_audit (
   created_at timestamptz not null default now()
 );
 
+create index families_referred_by_family_id_idx on public.families (referred_by_family_id);
+create index families_pin_code_idx on public.families (pin_code) where pin_code <> '';
+create index families_city_lower_idx on public.families (lower(city)) where city <> '';
+create index families_state_lower_idx on public.families (lower(state_province)) where state_province <> '';
+create index families_country_lower_idx on public.families (lower(country)) where country <> '';
+
 alter table public.families enable row level security;
 alter table public.point_transactions enable row level security;
 alter table public.admin_point_audit enable row level security;
+alter table public.schema_migrations enable row level security;
 
 create policy "Members can read their household" on public.families
   for select to authenticated using (auth.uid() = user_id);
@@ -87,7 +100,7 @@ begin
      and claim_code_hash = p_claim_code_hash
      and claim_code_expires_at > now()
      and claim_code_used_at is null
-     and lower(email) = lower(p_email)
+     and (email = '' or lower(email) = lower(p_email))
      and user_id is null
   returning families.id;
 end;
@@ -205,6 +218,7 @@ end;
 $$;
 create trigger award_referral_green_pause_after_insert
 after insert on public.families for each row execute function public.award_referral_green_pause();
+revoke all on function public.award_referral_green_pause() from public;
 
 create or replace function public.get_monthly_leaderboard(
   p_viewer_family_id uuid,
@@ -240,8 +254,12 @@ language sql security definer stable set search_path = public as $$
        and t.date < (date_trunc('month', p_month) + interval '1 month')::date
      where case p_scope
        when 'india' then lower(f.country) = 'india'
-       when 'state' then lower(f.state_province) = lower(v.state_province)
-       when 'city' then lower(f.city) = lower(v.city)
+       when 'state' then f.id = v.id or (
+         nullif(btrim(v.state_province), '') is not null and lower(f.state_province) = lower(v.state_province)
+       )
+       when 'city' then f.id = v.id or (
+         nullif(btrim(v.city), '') is not null and lower(f.city) = lower(v.city)
+       )
        when 'nearby' then case
          when v.latitude is not null and v.longitude is not null
            then f.id = v.id
@@ -251,8 +269,11 @@ language sql security definer stable set search_path = public as $$
                  cos(radians(v.latitude)) * cos(radians(f.latitude)) *
                  power(sin(radians(f.longitude - v.longitude) / 2), 2)
                ))) <= 5)
-             or (f.latitude is null and f.longitude is null and f.pin_code = v.pin_code)
-         else f.pin_code = v.pin_code
+             or (nullif(btrim(v.pin_code), '') is not null and
+                 f.latitude is null and f.longitude is null and f.pin_code = v.pin_code)
+         else f.id = v.id or (
+           nullif(btrim(v.pin_code), '') is not null and f.pin_code = v.pin_code
+         )
        end
        else false
      end
@@ -271,3 +292,5 @@ language sql security definer stable set search_path = public as $$
 $$;
 revoke all on function public.get_monthly_leaderboard(uuid, text, date, integer) from public;
 grant execute on function public.get_monthly_leaderboard(uuid, text, date, integer) to service_role;
+
+insert into public.schema_migrations(version) values ('20261021_production_ready');

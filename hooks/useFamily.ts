@@ -47,6 +47,7 @@ export function useFamily() {
   const [selectedFamilyId, setSelectedFamilyId] = useState<string>(demoFamilies[0]?.id ?? "");
   const [loading, setLoading] = useState(supabaseConfigured);
   const [profileError, setProfileError] = useState("");
+  const [schemaOutdated, setSchemaOutdated] = useState(false);
 
   const family = useMemo(
     () => families.find((entry) => entry.id === selectedFamilyId) ?? families[0] ?? demoFamilies[0],
@@ -66,6 +67,7 @@ export function useFamily() {
       if (!currentUser) {
         setFamilies([]);
         setSelectedFamilyId("");
+        setSchemaOutdated(false);
         setLoading(false);
         return;
       }
@@ -77,6 +79,7 @@ export function useFamily() {
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Unable to load your household.");
+        setSchemaOutdated(Boolean(result.schemaOutdated));
         if (result?.family) {
           const nextFamily = toFamily(result.family);
           setFamilies([nextFamily]);
@@ -132,9 +135,9 @@ export function useFamily() {
       const nextFamily = toFamily(result.family);
       setFamilies([nextFamily]);
       setSelectedFamilyId(nextFamily.id);
+      setSchemaOutdated(Boolean(result.schemaOutdated));
       setProfileError("");
     } catch (error) {
-      setProfileError(error instanceof Error ? error.message : "Unable to refresh household points.");
       throw error;
     }
   }, []);
@@ -166,6 +169,7 @@ export function useFamily() {
     setSelectedFamilyId,
     loading,
     profileError,
+    schemaOutdated,
     login,
     logout,
     refreshFamily,

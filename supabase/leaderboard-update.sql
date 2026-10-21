@@ -34,9 +34,15 @@ language sql security definer stable set search_path = public as $$
        and t.date < (date_trunc('month', p_month) + interval '1 month')::date
      where case p_scope
        when 'india' then lower(f.country) = 'india'
-       when 'state' then lower(f.state_province) = lower(v.state_province)
-       when 'city' then lower(f.city) = lower(v.city)
-       when 'nearby' then f.pin_code = v.pin_code
+       when 'state' then f.id = v.id or (
+         nullif(btrim(v.state_province), '') is not null and lower(f.state_province) = lower(v.state_province)
+       )
+       when 'city' then f.id = v.id or (
+         nullif(btrim(v.city), '') is not null and lower(f.city) = lower(v.city)
+       )
+       when 'nearby' then f.id = v.id or (
+         nullif(btrim(v.pin_code), '') is not null and f.pin_code = v.pin_code
+       )
        else false
      end
      group by f.id

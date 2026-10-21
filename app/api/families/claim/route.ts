@@ -40,6 +40,9 @@ export async function POST(request: NextRequest) {
       p_user_id: authData.user.id,
       p_email: authData.user.email ?? ""
     });
+    if (claimError?.code === "PGRST202" || claimError?.message.includes("schema cache")) {
+      throw new Error("Household claiming is not enabled yet. The administrator must run the production database update.");
+    }
     if (claimError || !family?.[0]) throw new Error("The claim code is invalid or expired, the Google email does not match, or the household is already claimed.");
 
     const { data: fullFamily, error } = await admin

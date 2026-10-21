@@ -22,7 +22,10 @@ export async function GET(request: NextRequest) {
     const history = [...(data.point_transactions ?? [])].sort((a, b) =>
       b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at)
     );
-    return NextResponse.json({ family: { id: data.waste_reward_id, name: data.family_name, points: data.points, history } });
+    return NextResponse.json(
+      { family: { id: data.waste_reward_id, name: data.family_name, points: data.points, history } },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load point history." }, { status: 403 });
   }
@@ -58,7 +61,7 @@ export async function POST(request: NextRequest) {
       const schemaIsOutdated = error.code === "PGRST202"
         || error.message.includes("admin_adjust_points") && error.message.includes("schema cache");
       if (schemaIsOutdated) {
-        throw new Error("The Supabase database is out of date. Run the ordered SQL updates through supabase/production-hardening-update.sql, then try again.");
+        throw new Error("The Supabase database is out of date. Run supabase/production-hardening-update.sql, then try again.");
       }
       throw new Error(error.message);
     }
