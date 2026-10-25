@@ -142,23 +142,26 @@ export function useFamily() {
     }
   }, []);
 
-  async function claimHousehold(wasteRewardId: string, claimCode: string) {
+  async function registerHousehold(details: { familyName: string; mobileNumber: string; houseNo: string; locality: string; city: string; pinCode: string; referredBy: string }) {
     if (!supabase) return;
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error("Please sign in again.");
-    const response = await fetch("/api/families/claim", {
+    const response = await fetch("/api/families/register", {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ wasteRewardId, claimCode })
+      body: JSON.stringify(details)
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error ?? "Unable to link household.");
+    if (!response.ok) throw new Error(result.error ?? "Unable to create your household.");
     const profileResponse = await fetch("/api/families/profile", {
-      headers: { Authorization: `Bearer ${session.access_token}` }
+      headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store"
     });
-    const profileResult = profileResponse.ok ? await profileResponse.json() : null;
-    const nextFamily = toFamily(profileResult?.family ?? result.family);
+    const profileResult = await profileResponse.json();
+    if (!profileResponse.ok || !profileResult.family) throw new Error(profileResult.error ?? "Your household was created but could not be loaded.");
+    const nextFamily = toFamily(profileResult.family);
     setFamilies([nextFamily]);
     setSelectedFamilyId(nextFamily.id);
+    setSchemaOutdated(Boolean(profileResult.schemaOutdated));
+    setProfileError("");
   }
 
   return {
@@ -173,7 +176,7 @@ export function useFamily() {
     login,
     logout,
     refreshFamily,
-    claimHousehold,
+    registerHousehold,
     needsHousehold: supabaseConfigured && Boolean(user) && families.length === 0,
     demoMode: !supabaseConfigured
   };

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { dateKeyInTimeZone } from "@/lib/date";
+import GreenProgramAdmin from "@/components/GreenProgramAdmin";
 
 type Notice = { type: "error" | "success"; message: string } | null;
 type PointHistory = { date: string; reason: string; points: number };
@@ -42,8 +43,6 @@ export default function AdminPanel() {
   const todayKey = dateKeyInTimeZone();
   const [pointUpdate, setPointUpdate] = useState({ familyId: "", reason: "Daily waste collection", points: "5", status: "completed", date: todayKey });
   const [history, setHistory] = useState<HistoryResult>(null);
-  const [claimCode, setClaimCode] = useState("");
-  const [createdFamilyId, setCreatedFamilyId] = useState("");
 
   useEffect(() => {
     if (!supabase) { setLoading(false); return; }
@@ -62,26 +61,10 @@ export default function AdminPanel() {
     event.preventDefault(); setSaving(true); setNotice(null);
     try {
       const result = await adminFetch("/api/admin/families", { method: "POST", body: JSON.stringify(family) });
-      setClaimCode(result.claimCode);
-      setCreatedFamilyId(result.familyId);
-      setNotice({ type: "success", message: "Household created. Copy the one-time claim code below; it expires in 30 days." });
+      setNotice({ type: "success", message: `Household ${result.familyId} created. The family can sign in with its registered Google email, or self-register directly if no email was entered.` });
       setFamily(emptyFamily);
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to create household." });
-    } finally { setSaving(false); }
-  }
-
-  async function generateClaimCode() {
-    const familyId = history?.id ?? pointUpdate.familyId;
-    if (!familyId.trim()) { setNotice({ type: "error", message: "Look up an unclaimed household first." }); return; }
-    setSaving(true); setNotice(null);
-    try {
-      const result = await adminFetch("/api/admin/claim-code", { method: "POST", body: JSON.stringify({ familyId }) });
-      setClaimCode(result.claimCode);
-      setCreatedFamilyId(familyId.trim().toUpperCase());
-      setNotice({ type: "success", message: "A new one-time claim code was generated and will expire in 30 days." });
-    } catch (error) {
-      setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to generate a claim code." });
     } finally { setSaving(false); }
   }
 
@@ -142,15 +125,15 @@ export default function AdminPanel() {
         </div>
       </header>
       {notice && <p className={`admin-notice ${notice.type}`}>{notice.message}</p>}
-      {claimCode && <section className="admin-claim-code" role="status"><span>HOUSEHOLD {createdFamilyId ? `· ${createdFamilyId}` : ""}</span><strong>{claimCode}</strong><button type="button" onClick={() => navigator.clipboard.writeText(`${createdFamilyId ? `${createdFamilyId} · ` : ""}${claimCode}`)}>Copy details</button><small>Share this WasteReward ID and one-time claim code securely. The code expires in 30 days.</small></section>}
       <section className="admin-stack">
+        <GreenProgramAdmin />
         <form className="panel admin-form" onSubmit={submitFamily}>
           <p className="eyebrow">CREATE FAMILY</p><h2>Create a member household</h2>
           <fieldset><legend>Family & contact details</legend><div className="form-grid">
             <label className="field-label">WasteReward ID (optional)<input placeholder="Auto-generated if blank" value={family.familyId} onChange={(e) => updateFamily("familyId", e.target.value)} /></label>
             <label className="field-label">Family number (optional)<input placeholder="Auto-generated if blank" value={family.familyNumber} onChange={(e) => updateFamily("familyNumber", e.target.value)} /></label>
             <label className="field-label">Family name<input required value={family.familyName} onChange={(e) => updateFamily("familyName", e.target.value)} /></label>
-            <label className="field-label">Email ID (optional)<input type="email" value={family.email} onChange={(e) => updateFamily("email", e.target.value)} /></label>
+            <label className="field-label">Google email (optional)<input type="email" value={family.email} onChange={(e) => updateFamily("email", e.target.value)} /><small className="field-hint">Matching Gmail accounts link automatically at sign-in.</small></label>
             <label className="field-label">Mobile / WhatsApp<input required type="tel" value={family.mobileNumber} onChange={(e) => updateFamily("mobileNumber", e.target.value)} /></label>
             <label className="field-label">Alternate mobile (optional)<input type="tel" value={family.alternateMobileNumber} onChange={(e) => updateFamily("alternateMobileNumber", e.target.value)} /></label>
             <label className="field-label">Family leader name (optional)<input value={family.familyLeaderName} onChange={(e) => updateFamily("familyLeaderName", e.target.value)} /></label>
@@ -187,7 +170,7 @@ export default function AdminPanel() {
           <article className="panel history-panel admin-history">
             <p className="eyebrow">DAY-BY-DAY HISTORY</p>
             <h2>{history ? history.name : "Look up a family"}</h2>
-            {history ? <><div className="admin-total"><span>Total points</span><strong>{history.points}</strong></div><button className="secondary-action" type="button" onClick={generateClaimCode} disabled={saving}>Generate new claim code</button><div className="history-list">{history.history.length ? history.history.map((item) => <div className="history-row" key={item.date}><div><strong>{item.reason}</strong><span>{formatDate(item.date)}</span></div><b className={item.points < 0 ? "negative" : ""}>{item.points > 0 ? "+" : ""}{item.points}</b></div>) : <p className="empty-state">No point entries yet.</p>}</div></> : <p className="empty-state">Enter a WasteReward ID and select “Check history” to review its current total and daily entries.</p>}
+            {history ? <><div className="admin-total"><span>Total points</span><strong>{history.points}</strong></div><div className="history-list">{history.history.length ? history.history.map((item) => <div className="history-row" key={item.date}><div><strong>{item.reason}</strong><span>{formatDate(item.date)}</span></div><b className={item.points < 0 ? "negative" : ""}>{item.points > 0 ? "+" : ""}{item.points}</b></div>) : <p className="empty-state">No point entries yet.</p>}</div></> : <p className="empty-state">Enter a WasteReward ID and select “Check history” to review its current total and daily entries.</p>}
           </article>
         </section>
       </section>

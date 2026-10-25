@@ -23,12 +23,35 @@ export async function GET(request: NextRequest) {
     const { data: authData, error: authError } = await admin.auth.getUser(token);
     if (authError || !authData.user) throw new Error("Your sign-in session has expired.");
 
-    const profileResult = await admin
+    let profileResult = await admin
       .from("families")
       .select(FAMILY_PROFILE_SELECT)
       .eq("user_id", authData.user.id)
       .maybeSingle();
-    let family = profileResult.data;
+    let automaticallyLinkedFamily: typeof profileResult.data = null;
+
+    const normalizedEmail = authData.user.email?.trim().toLowerCase();
+    if (!profileResult.error && !profileResult.data && normalizedEmail && authData.user.email_confirmed_at) {
+      const { data: candidates, error: candidateError } = await admin
+        .from("families")
+        .select("id")
+        .eq("email", normalizedEmail)
+        .is("user_id", null)
+        .limit(2);
+      if (candidateError) throw new Error(candidateError.message);
+      if (candidates?.length === 1) {
+        const { data: linked, error: linkError } = await admin
+          .from("families")
+          .update({ user_id: authData.user.id, claim_code_hash: null, claim_code_used_at: new Date().toISOString() })
+          .eq("id", candidates[0].id)
+          .is("user_id", null)
+          .select(FAMILY_PROFILE_SELECT)
+          .maybeSingle();
+        if (linkError) throw new Error(linkError.message);
+        if (linked) automaticallyLinkedFamily = linked;
+      }
+    }
+    let family = profileResult.data ?? automaticallyLinkedFamily;
     let error = profileResult.error;
     let schemaOutdated = false;
 

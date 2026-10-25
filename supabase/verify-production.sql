@@ -6,6 +6,26 @@ select exists (
   where version = '20261021_production_ready'
 ) as migration_applied;
 
+select exists (
+  select 1 from public.schema_migrations
+  where version = '20261025_green_pass'
+) as green_pass_migration_applied;
+
+select exists (
+  select 1 from public.schema_migrations
+  where version = '20261025_partner_sponsor_program'
+) as partner_sponsor_migration_applied;
+
+with required_tables(table_name) as (
+  values ('merchant_partners'), ('merchant_users'), ('merchant_offers'),
+         ('green_pass_redemptions'), ('sponsors'), ('sponsor_campaigns')
+)
+select coalesce(array_agg(r.table_name) filter (where t.table_name is null), '{}') as missing_green_pass_tables
+from required_tables r
+left join information_schema.tables t
+  on t.table_schema = 'public'
+ and t.table_name = r.table_name;
+
 with required_columns(column_name) as (
   values
     ('family_number'), ('email'), ('mobile_number'), ('address_line_1'),
@@ -23,7 +43,8 @@ left join information_schema.columns c
 select
   to_regprocedure('public.claim_family(text,text,uuid,text)') is not null as claim_function_ready,
   to_regprocedure('public.admin_adjust_points(text,text,integer,date,text,text)') is not null as points_function_ready,
-  to_regprocedure('public.get_monthly_leaderboard(uuid,text,date,integer)') is not null as leaderboard_function_ready;
+  to_regprocedure('public.get_monthly_leaderboard(uuid,text,date,integer)') is not null as leaderboard_function_ready,
+  to_regprocedure('public.issue_green_pass_offer(uuid,uuid)') is not null as green_pass_issue_function_ready;
 
 select count(*) as duplicate_family_dates
 from (

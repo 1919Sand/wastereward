@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { generateClaimCode, hashClaimCode } from "@/lib/claim-code";
 import { randomBytes } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -64,8 +63,6 @@ export async function POST(request: NextRequest) {
       referredByFamilyId = referrer.id;
     }
 
-    const claimCode = generateClaimCode();
-    const claimCodeExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     const { error } = await getSupabaseAdmin().from("families").insert({
       waste_reward_id: familyId,
       family_number: familyNumber,
@@ -85,9 +82,7 @@ export async function POST(request: NextRequest) {
       locality: cleanText(body.locality),
       country,
       pin_code: pinCode,
-      referred_by_family_id: referredByFamilyId,
-      claim_code_hash: hashClaimCode(claimCode),
-      claim_code_expires_at: claimCodeExpiresAt
+      referred_by_family_id: referredByFamilyId
     });
     if (error?.code === "PGRST204" || error?.message.includes("schema cache")) {
       return NextResponse.json(
@@ -96,7 +91,7 @@ export async function POST(request: NextRequest) {
       );
     }
     if (error) throw new Error(error.code === "23505" ? "That WasteReward ID already exists." : error.message);
-    return NextResponse.json({ ok: true, familyId, familyNumber, claimCode, claimCodeExpiresAt });
+    return NextResponse.json({ ok: true, familyId, familyNumber });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to create household." }, { status: 403 });
   }

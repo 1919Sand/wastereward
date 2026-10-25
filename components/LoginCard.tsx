@@ -33,7 +33,7 @@ export default function LoginCard({ onLogin, demoMode }: Props) {
         <p className="eyebrow">WASTEREWARD</p>
         <h1>Good habits.<br />Great rewards.</h1>
         <p className="login-copy">
-          Member access only. Continue if your household already has a WasteReward ID.
+          Continue with Google to open your household dashboard or create a new Green Pass in a few steps.
         </p>
         <button className="google-btn" onClick={handleLogin} disabled={loggingIn}>
           <span className="google-g">G</span>
@@ -45,7 +45,7 @@ export default function LoginCard({ onLogin, demoMode }: Props) {
             ? "Demo mode is active. Add Supabase keys to enable Google Login."
             : "Your account is securely connected with Google."}
         </p>
-        <a className="member-interest-link" href={interestHref} target="_blank" rel="noreferrer">New here? WhatsApp to register interest →</a>
+        <a className="member-interest-link" href={interestHref} target="_blank" rel="noreferrer">Need help? Chat with us on WhatsApp →</a>
         <Link className="login-home-link" href="/">← Back to WasteReward website</Link>
       </section>
     </main>

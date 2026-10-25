@@ -4,17 +4,17 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const REQUIRED_MIGRATION = "20261021_production_ready";
+const REQUIRED_MIGRATIONS = ["20261021_production_ready", "20261025_green_pass", "20261025_partner_sponsor_program"];
 
 export async function GET() {
   try {
     const { data, error } = await getSupabaseAdmin()
       .from("schema_migrations")
       .select("version")
-      .eq("version", REQUIRED_MIGRATION)
-      .maybeSingle();
+      .in("version", REQUIRED_MIGRATIONS);
 
-    if (error || !data) {
+    const applied = new Set((data ?? []).map((entry) => entry.version));
+    if (error || REQUIRED_MIGRATIONS.some((version) => !applied.has(version))) {
       return NextResponse.json(
         { status: "migration_required" },
         { status: 503, headers: { "Cache-Control": "no-store" } }
@@ -22,7 +22,7 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      { status: "ok", database: "connected", migration: REQUIRED_MIGRATION },
+      { status: "ok", database: "connected", migration: REQUIRED_MIGRATIONS.at(-1) },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch {

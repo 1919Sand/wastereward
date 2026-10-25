@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import LoginCard from "./LoginCard";
 import ReferralShare from "./ReferralShare";
+import GreenPass from "./GreenPass";
 import { useFamily } from "@/hooks/useFamily";
 import { demoFamilies } from "@/lib/demo-data";
 import { supabase } from "@/lib/supabase";
@@ -57,7 +58,7 @@ export default function Dashboard() {
     logout,
     refreshFamily,
     demoMode,
-    claimHousehold,
+    registerHousehold,
     needsHousehold
   } = useFamily();
 
@@ -65,9 +66,9 @@ export default function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState(() => initialDate.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [rewardOpen, setRewardOpen] = useState(true);
-  const [familyIdInput, setFamilyIdInput] = useState("");
-  const [claimCodeInput, setClaimCodeInput] = useState("");
+  const [onboarding, setOnboarding] = useState({ familyName: "", mobileNumber: "", houseNo: "", locality: "", city: "", pinCode: "", referredBy: "" });
   const [setupError, setSetupError] = useState("");
+  const [setupSaving, setSetupSaving] = useState(false);
   const [leaderboardScope, setLeaderboardScope] = useState<LeaderboardScope>("nearby");
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
@@ -325,13 +326,22 @@ export default function Dashboard() {
     }
   };
 
+  useEffect(() => {
+    if (!needsHousehold || onboarding.familyName) return;
+    const googleName = typeof user?.user_metadata.full_name === "string" ? user.user_metadata.full_name : "";
+    setOnboarding((current) => ({ ...current, familyName: googleName }));
+  }, [needsHousehold, onboarding.familyName, user]);
+
   const handleHouseholdSetup = async (event: React.FormEvent) => {
     event.preventDefault();
+    setSetupSaving(true);
     try {
       setSetupError("");
-      await claimHousehold(familyIdInput, claimCodeInput);
+      await registerHousehold(onboarding);
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : "We could not save your household. Please try again.");
+    } finally {
+      setSetupSaving(false);
     }
   };
 
@@ -359,19 +369,25 @@ export default function Dashboard() {
         <section className="setup-card">
           <div className="logo-mark">♻</div>
           <p className="eyebrow">WELCOME TO WASTEREWARD</p>
-          <h1>Set up your household</h1>
-          <p className="login-copy">Enter the WasteReward ID and one-time claim code provided by your administrator. If an email was registered for your household, sign in with that same email.</p>
+          <h1>Create your Green Pass</h1>
+          <p className="login-copy">You&apos;re signed in as <strong>{user?.email}</strong>. Add three household details and your WasteReward ID and Green Pass will be created automatically.</p>
           <form className="admin-form" onSubmit={handleHouseholdSetup}>
             <label className="field-label">
-              WasteReward ID
-              <input required value={familyIdInput} onChange={(event) => setFamilyIdInput(event.target.value)} placeholder="e.g. WR101" />
+              Family name
+              <input required autoComplete="name" value={onboarding.familyName} onChange={(event) => setOnboarding({ ...onboarding, familyName: event.target.value })} placeholder="e.g. Sharma Family" />
             </label>
             <label className="field-label">
-              One-time claim code
-              <input required value={claimCodeInput} onChange={(event) => setClaimCodeInput(event.target.value)} placeholder="e.g. ABCDE-23456" autoComplete="one-time-code" />
+              Mobile / WhatsApp
+              <input required type="tel" autoComplete="tel" value={onboarding.mobileNumber} onChange={(event) => setOnboarding({ ...onboarding, mobileNumber: event.target.value })} placeholder="Your mobile number" />
             </label>
+            <label className="field-label">House number<input required autoComplete="address-line1" value={onboarding.houseNo} onChange={(event) => setOnboarding({ ...onboarding, houseNo: event.target.value })} placeholder="House / flat number" /></label>
+            <div className="onboarding-optional"><span>Optional location details</span></div>
+            <label className="field-label">Locality<input value={onboarding.locality} onChange={(event) => setOnboarding({ ...onboarding, locality: event.target.value })} placeholder="Neighbourhood or landmark" /></label>
+            <label className="field-label">City<input autoComplete="address-level2" value={onboarding.city} onChange={(event) => setOnboarding({ ...onboarding, city: event.target.value })} /></label>
+            <label className="field-label">PIN code<input inputMode="numeric" autoComplete="postal-code" value={onboarding.pinCode} onChange={(event) => setOnboarding({ ...onboarding, pinCode: event.target.value })} placeholder="6 digits" /></label>
+            <label className="field-label">Referral WasteReward ID<input value={onboarding.referredBy} onChange={(event) => setOnboarding({ ...onboarding, referredBy: event.target.value })} placeholder="Optional" /></label>
             {setupError && <p className="form-error">{setupError}</p>}
-            <button type="submit" className="primary-action">Open my dashboard</button>
+            <button type="submit" className="primary-action" disabled={setupSaving}>{setupSaving ? "Creating Green Pass…" : "Create Green Pass"}</button>
           </form>
           <button type="button" className="text-button" onClick={logout}>Use another Google account</button>
           <Link className="login-home-link" href="/">← Back to WasteReward website</Link>
@@ -419,6 +435,8 @@ export default function Dashboard() {
             <strong>{family.id}</strong>
           </div>
         </section>
+
+        <GreenPass family={family} demoMode={demoMode} />
 
         <section className="stats-grid">
           <article className="stat-card primary">
